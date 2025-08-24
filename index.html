@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0b0c" />
+  <title>Oriento — Minimal Orientation Tools</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='13' r='7' fill='none' stroke='%236ee7ff' stroke-width='1.6'/%3E%3Cpath d='M10 2h4M12 4v2' stroke='%236ee7ff' stroke-width='1.6'/%3E%3Cpath d='M12 13l3-3' stroke='%236ee7ff' stroke-width='1.6'/%3E%3C/svg%3E" />
+</head>
+<body data-mode="alarm" data-theme="dark">
+  <!-- Inline icon sprites -->
+  <svg width="0" height="0" style="position:absolute;visibility:hidden">
+    <defs>
+      <symbol id="i-alarm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <circle cx="12" cy="13" r="7" stroke-width="1.8"/><path d="M12 10v4l2 2" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M5 6 3 4M19 6l2-2" stroke-width="1.8" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="i-timer" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <rect x="6" y="4" width="12" height="16" rx="6" stroke-width="1.8"/>
+        <path d="M9 2h6" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M12 9v5" stroke-width="1.8" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="i-stopwatch" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <circle cx="12" cy="14" r="7" stroke-width="1.8"/>
+        <path d="M10 2h4M12 4v2" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M12 14l3-3" stroke-width="1.8" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="i-weather" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M7 17h8a4 4 0 0 0 0-8 6 6 0 0 0-11 3" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M9 20l1.5-2M12 20l1.5-2M15 20l1.5-2" stroke-width="1.8" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8z" stroke-width="1.6"/>
+        <path d="M3 13h3l1 2  -1 2H3l-1-2zM18 13h3l1 2-1 2h-3l-1-2zM11 3h2l1 2-1 2h-2l-1-2zM11 17h2l1 2-1 2h-2l-1-2z" stroke-width="1.2" opacity=".45"/>
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <rect x="4" y="10" width="16" height="10" rx="2" stroke-width="1.8"/>
+        <path d="M8 10V8a4 4 0 1 1 8 0v2" stroke-width="1.8"/>
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <circle cx="12" cy="12" r="4" stroke-width="1.6"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l-1-1M20 20l-1-1M5 19l-1 1M20 4l-1 1" stroke-width="1.4" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M21 12.5A8.5 8.5 0 1 1 11.5 3 6.5 6.5 0 0 0 21 12.5z" stroke-width="1.6"/>
+      </symbol>
+      <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M12 18h.01M9.5 9a2.5 2.5 0 1 1 3.5 2.3V12" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="12" cy="12" r="9" stroke-width="1.4"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- Permission overlay -->
+  <div id="overlay" class="overlay" aria-hidden="true">
+    <div class="card">
+      <h2>Enable sensors & sound</h2>
+      <p class="note">To detect upside‑down/left/right precisely (iOS), allow motion. Tap once to enable sound.</p>
+      <div class="row mt">
+        <button id="enableMotion" class="btn primary">Enable Motion</button>
+        <button id="enableSound" class="btn">Enable Sound</button>
+        <button id="closeOverlay" class="btn ghost">Skip</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="logo">O</div>
+        <div>
+          <div class="wordmark">Oriento</div>
+          <div class="subtle" id="modeSubtitle">Portrait upright</div>
+        </div>
+      </div>
+      <div class="toolbar row">
+        <button id="lockBtn" class="btn ghost"><svg class="icon"><use href="#i-lock"/></svg><span>Lock</span></button>
+        <button id="themeToggle" class="btn" title="Theme"><svg class="icon"><use id="themeIcon" href="#i-moon"/></svg></button>
+        <button id="settingsBtn" class="btn" title="Settings"><svg class="icon"><use href="#i-gear"/></svg></button>
+      </div>
+    </header>
+
+    <section class="stage">
+      <!-- Alarm -->
+      <section id="mode-alarm" class="mode active" role="region" aria-label="Alarm">
+        <div class="col center">
+          <div class="mode-head row" style="justify-content:center; gap:8px;">
+            <svg class="icon"><use href="#i-alarm"/></svg>
+            <h1 id="modeTitle" style="margin:0;font-size:16px;">Alarm</h1>
+          </div>
+          <div id="alarmNow" class="big k">--:--:--</div>
+          <div class="row wrap" style="justify-content:center">
+            <input id="alarmTime" class="input" type="time" aria-label="Alarm time" />
+            <button id="setAlarm" class="btn primary">Set</button>
+            <button id="clearAlarm" class="btn">Clear</button>
+          </div>
+          <p id="alarmInfo" class="note">No alarm set.</p>
+          <button id="stopAlarm" class="btn danger mt hidden">Stop Ringing</button>
+        </div>
+      </section>
+
+      <!-- Timer -->
+      <section id="mode-timer" class="mode" role="region" aria-label="Timer">
+        <div class="col center">
+          <div class="mode-head row" style="justify-content:center; gap:8px;">
+            <svg class="icon"><use href="#i-timer"/></svg>
+            <h1 style="margin:0;font-size:16px;">Timer</h1>
+          </div>
+          <div id="timerDisplay" class="big k">00:05:00</div>
+          <div class="row wrap" style="justify-content:center">
+            <input id="timerMin" class="input" type="number" inputmode="numeric" min="0" placeholder="min" />
+            <input id="timerSec" class="input" type="number" inputmode="numeric" min="0" max="59" placeholder="sec" />
+            <button id="timerSet" class="btn">Set</button>
+          </div>
+          <div class="row wrap" style="justify-content:center">
+            <button id="timerStartPause" class="btn primary">Start</button>
+            <button id="timerReset" class="btn">Reset</button>
+          </div>
+          <p id="timerInfo" class="note"></p>
+        </div>
+      </section>
+
+      <!-- Stopwatch -->
+      <section id="mode-stopwatch" class="mode" role="region" aria-label="Stopwatch">
+        <div class="col center">
+          <div class="mode-head row" style="justify-content:center; gap:8px;">
+            <svg class="icon"><use href="#i-stopwatch"/></svg>
+            <h1 style="margin:0;font-size:16px;">Stopwatch</h1>
+          </div>
+          <div id="swDisplay" class="big k">00:00.00</div>
+          <div class="row wrap" style="justify-content:center">
+            <button id="swStartPause" class="btn primary">Start</button>
+            <button id="swReset" class="btn">Reset</button>
+            <button id="swLap" class="btn">Lap</button>
+          </div>
+          <div id="swLaps" class="note k" style="max-height:150px;overflow:auto;text-align:center"></div>
+        </div>
+      </section>
+
+      <!-- Weather -->
+      <section id="mode-weather" class="mode" role="region" aria-label="Weather">
+        <div class="col center">
+          <div class="mode-head row" style="justify-content:center; gap:8px;">
+            <svg class="icon"><use href="#i-weather"/></svg>
+            <h1 style="margin:0;font-size:16px;">Weather</h1>
+          </div>
+          <div class="row wrap" style="justify-content:center">
+            <input id="cityInput" class="input" type="text" placeholder="Enter city (e.g., Mumbai)" aria-label="City" />
+            <button id="citySearch" class="btn">Search</button>
+          </div>
+          <div id="weatherHeadline" class="big">Weather of the Day</div>
+          <div class="grid">
+            <div class="stat"><div id="wCity">—</div><div class="note">City</div></div>
+            <div class="stat"><div id="wTemp">—</div><div class="note">Temp (°C)</div></div>
+            <div class="stat"><div id="wMinMax">—</div><div class="note">Min / Max</div></div>
+            <div class="stat"><div id="wDesc">—</div><div class="note">Condition</div></div>
+          </div>
+          <p class="note" id="weatherInfo">Data: Open‑Meteo</p>
+        </div>
+      </section>
+    </section>
+
+    <footer class="footer">
+      <div class="chip" id="statusChip">Orientation: waiting…</div>
+      <div class="row">
+        <button class="btn" id="helpBtn" title="Hints"><svg class="icon"><use href="#i-help"/></svg></button>
+      </div>
+    </footer>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
