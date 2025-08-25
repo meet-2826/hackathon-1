@@ -24,8 +24,6 @@ const els = {
   lockBtn:q('#lockBtn'), settingsBtn:q('#settingsBtn'),
   // panels
   p:{ alarm:q('#mode-alarm'), timer:q('#mode-timer'), stopwatch:q('#mode-stopwatch'), weather:q('#mode-weather') },
-  // labels
-  // (we'll set via setText to avoid optional-chaining assignments)
   // alarm
   alarmNow:q('#alarmNow'), alarmTime:q('#alarmTime'), setAlarm:q('#setAlarm'), clearAlarm:q('#clearAlarm'), alarmInfo:q('#alarmInfo'), stopAlarm:q('#stopAlarm'),
   // timer
@@ -154,7 +152,6 @@ function showOnly(modeKey){
   setText('#modeTitle', TITLES[modeKey]);
   setText('#modeSubtitle', SUBS[modeKey]);
 }
-
 function setMode(m){
   if (!Object.values(MODES).includes(m)) return;
   if (state.mode===m) return;
@@ -165,22 +162,62 @@ function setMode(m){
 
 /* ---------- Audio ---------- */
 let audioCtx=null;
-function ensureAudio(){ if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch{} } state.soundEnabled=!!audioCtx; save(); return !!audioCtx; }
-function beep(pattern=[500,200,700,200,900,300], times=2){
-  if(!ensureAudio()) return;
-  const now=audioCtx.currentTime; let t=0;
-  for(let i=0;i<times;i++){
-    for(let j=0;j<pattern.length;j+=2){
-      const freq=pattern[j], dur=(pattern[j+1]||200)/1000;
-      const osc=audioCtx.createOscillator(), g=audioCtx.createGain();
-      osc.frequency.value=freq; osc.connect(g); g.connect(audioCtx.destination);
-      g.gain.setValueAtTime(0.0001, now+t); g.gain.exponentialRampToValueAtTime(0.28, now+t+0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, now+t+dur);
-      osc.start(now+t); osc.stop(now+t+dur); t+=dur+0.03;
-    } t+=0.12;
+let alarmInterval=null, masterGain=null;
+
+function ensureAudio(){
+  if(!audioCtx){
+    try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
+    catch(e){ /* noop */ }
   }
-  if (navigator.vibrate) navigator.vibrate([140,80,140]);
+  return !!audioCtx;
 }
+
+function makeVoice(freq, t0, dur, type='sine', gain=0.6){
+  const osc = audioCtx.createOscillator();
+  const g   = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  // ADSR-ish
+  g.gain.exponentialRampToValueAtTime(gain, t0+0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+  osc.connect(g); g.connect(masterGain);
+  osc.start(t0);  osc.stop(t0+dur);
+}
+
+function playChimePattern(style='chime', vol=0.6){
+  if(!ensureAudio()) return;
+  if(!masterGain){ masterGain = audioCtx.createGain(); masterGain.connect(audioCtx.destination); }
+  masterGain.gain.setValueAtTime(vol, audioCtx.currentTime);
+
+  const t = audioCtx.currentTime + 0.04;
+  if(style==='beep'){
+    // classic two-tone beep
+    makeVoice(880, t+0.00, 0.18, 'square', 0.45);
+    makeVoice(660, t+0.22, 0.18, 'square', 0.45);
+  }else{
+    // soft triad chime arpeggio: G5–B5–D6 with subtle detune/triangle overlay
+    const notes = [784, 988, 1175]; // Hz
+    notes.forEach((f,i)=>{
+      const st = t + i*0.16;
+      makeVoice(f, st, 0.28, 'sine',   0.38);
+      makeVoice(f*2, st, 0.20, 'triangle', 0.16); // airy overtone
+    });
+  }
+}
+
+function startAlarmTone(){
+  if(!ensureAudio()) return;
+  stopAlarmTone();
+  playChimePattern(state.alarmSound, state.alarmVolume);
+  alarmInterval = setInterval(()=> playChimePattern(state.alarmSound, state.alarmVolume), 1600);
+  if (navigator.vibrate) navigator.vibrate([180,80,180,80,220]);
+}
+function stopAlarmTone(){
+  if(alarmInterval){ clearInterval(alarmInterval); alarmInterval=null; }
+  if(masterGain){ try{ masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.05); }catch{} }
+}
+
 
 /* ---------- Overlay ---------- */
 function showOverlay(){ if(els.overlay){ els.overlay.classList.add('show'); els.overlay.setAttribute('aria-hidden','false'); } }
@@ -195,8 +232,12 @@ function fmtClock(d){ return d.toLocaleTimeString([], {hour:'2-digit', minute:'2
 function startClock(){ if(clockT) return; const tick=()=> { if(els.alarmNow) els.alarmNow.textContent = fmtClock(new Date()); }; tick(); clockT=setInterval(tick,500); }
 function nextAlarm(hhmm){ if(!hhmm) return null; const [h,m]=hhmm.split(':').map(Number); const d=new Date(); d.setSeconds(0,0); d.setHours(h,m,0,0); if(d<=Date.now()) d.setDate(d.getDate()+1); return d; }
 function scheduleAlarm(ts){ clearTimeout(alarmT); const d=ts-Date.now(); if(d<=0) return triggerAlarm(); alarmT=setTimeout(triggerAlarm,d); }
-function triggerAlarm(){ state.alarmRinging=true; save(); if(els.stopAlarm) els.stopAlarm.classList.remove('hidden'); if(els.alarmInfo) els.alarmInfo.textContent='🔔 Alarm ringing!'; beep(); }
-function cancelAlarm(){ clearTimeout(alarmT); state.alarmAt=null; state.alarmRinging=false; save(); if(els.stopAlarm) els.stopAlarm.classList.add('hidden'); if(els.alarmInfo) els.alarmInfo.textContent='No alarm set.'; }
+function triggerAlarm(){
+  state.alarmRinging=true; save();
+  if(els.stopAlarm) els.stopAlarm.classList.remove('hidden');
+  if(els.alarmInfo) els.alarmInfo.textContent='🔔 Alarm ringing!';
+  startAlarmTone();   // <- new
+}function cancelAlarm(){ clearTimeout(alarmT); state.alarmAt=null; state.alarmRinging=false; save(); if(els.stopAlarm) els.stopAlarm.classList.add('hidden'); if(els.alarmInfo) els.alarmInfo.textContent='No alarm set.'; }
 if (els.setAlarm) els.setAlarm.addEventListener('click', ()=>{
   const d=nextAlarm(els.alarmTime?.value); if(!d){ if(els.alarmInfo) els.alarmInfo.textContent='Pick a time first.'; return; }
   state.alarmAt=d.getTime(); state.alarmRinging=false; save(); scheduleAlarm(state.alarmAt);
@@ -205,8 +246,11 @@ if (els.setAlarm) els.setAlarm.addEventListener('click', ()=>{
   if(els.alarmInfo) els.alarmInfo.textContent=`Alarm set for ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} (~${mins} min).`;
 });
 if (els.clearAlarm) els.clearAlarm.addEventListener('click', cancelAlarm);
-if (els.stopAlarm)  els.stopAlarm.addEventListener('click', ()=>{ state.alarmRinging=false; save(); els.stopAlarm.classList.add('hidden'); });
-
+if (els.stopAlarm)  els.stopAlarm.addEventListener('click', ()=>{
+  state.alarmRinging=false; save();
+  stopAlarmTone();   // <- new
+  els.stopAlarm.classList.add('hidden');
+});
 /* ---------- Timer ---------- */
 let tInt=0;
 function fmtMS(ms){ const neg=ms<0; if(neg) ms=-ms; const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), s=Math.floor((ms%60000)/1000);
@@ -311,6 +355,52 @@ if (state.sensorEnabled) enableSensors();
 else {
   const angle=screen.orientation?.angle, winOri=typeof window.orientation==='number'?window.orientation:null;
   setMode(modeFrom({angle,winOri}));
-  // show overlay for first-time permissions
   setTimeout(()=>showOverlay(), 300);
+  /* ---------- Settings & Help Panels ---------- */
+const settingsPanel = q('#settingsPanel');
+const helpPanel     = q('#helpPanel');
+
+function openModal(el){ if(!el) return; el.classList.add('show'); el.setAttribute('aria-hidden','false'); }
+function closeModal(el){ if(!el) return; el.classList.remove('show'); el.setAttribute('aria-hidden','true'); }
+
+// Top-right GEAR opens settings
+if (els.settingsBtn) els.settingsBtn.addEventListener('click', ()=>{
+  // preload current settings
+  const sel = q('#alarmSound'), rng = q('#alarmVolume');
+  if(sel) sel.value = state.alarmSound || 'chime';
+  if(rng) rng.value = state.alarmVolume ?? 0.6;
+  openModal(settingsPanel);
+});
+const closeSettings = q('#closeSettings');
+if (closeSettings) closeSettings.addEventListener('click', ()=> closeModal(settingsPanel));
+
+const saveSettings = q('#saveSettings');
+if (saveSettings) saveSettings.addEventListener('click', ()=>{
+  const sel = q('#alarmSound'), rng = q('#alarmVolume');
+  if(sel) state.alarmSound = sel.value;
+  if(rng) state.alarmVolume = parseFloat(rng.value||'0.6');
+  save(); closeModal(settingsPanel);
+});
+
+const testAlarm = q('#testAlarm');
+if (testAlarm) testAlarm.addEventListener('click', ()=>{
+  // play a single chime burst at current UI values without latching
+  const sel = q('#alarmSound')?.value || state.alarmSound;
+  const vol = parseFloat(q('#alarmVolume')?.value || state.alarmVolume || 0.6);
+  ensureAudio();
+  playChimePattern(sel, vol);
+});
+
+// Bottom-right HELP button opens help panel
+const helpBtn = q('#helpBtn');
+if (helpBtn) helpBtn.addEventListener('click', ()=> openModal(helpPanel));
+const closeHelp = q('#closeHelp');
+if (closeHelp) closeHelp.addEventListener('click', ()=> closeModal(helpPanel));
+
+// Close on outside click
+[settingsPanel, helpPanel].forEach(mod=>{
+  if(!mod) return;
+  mod.addEventListener('click', (e)=>{ if(e.target===mod) closeModal(mod); });
+});
+
 }
