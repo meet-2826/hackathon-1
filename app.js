@@ -8,13 +8,24 @@ const SUBS = {
   weather:'Landscape left‑side'
 };
 
+/* ---------- small helpers ---------- */
+function q(sel){ return document.querySelector(sel); }
+function setText(sel, value){
+  const el = q(sel);
+  if (el != null) el.textContent = value;
+}
+function save(){ try{ localStorage.setItem('oriento-min', JSON.stringify(state)); }catch{} }
+function load(){ try{ return JSON.parse(localStorage.getItem('oriento-min')||''); }catch{ return null; } }
+
+/* ---------- cache elements ---------- */
 const els = {
   overlay: q('#overlay'), enableMotion:q('#enableMotion'), enableSound:q('#enableSound'), closeOverlay:q('#closeOverlay'),
-  modeTitle:q('#modeTitle'), modeSubtitle:q('#modeSubtitle'),
   status:q('#statusChip'), themeToggle:q('#themeToggle'), themeIcon:q('#themeIcon'),
   lockBtn:q('#lockBtn'), settingsBtn:q('#settingsBtn'),
   // panels
   p:{ alarm:q('#mode-alarm'), timer:q('#mode-timer'), stopwatch:q('#mode-stopwatch'), weather:q('#mode-weather') },
+  // labels
+  // (we'll set via setText to avoid optional-chaining assignments)
   // alarm
   alarmNow:q('#alarmNow'), alarmTime:q('#alarmTime'), setAlarm:q('#setAlarm'), clearAlarm:q('#clearAlarm'), alarmInfo:q('#alarmInfo'), stopAlarm:q('#stopAlarm'),
   // timer
@@ -26,6 +37,7 @@ const els = {
   wHead:q('#weatherHeadline'), wCity:q('#wCity'), wTemp:q('#wTemp'), wMinMax:q('#wMinMax'), wDesc:q('#wDesc'), wInfo:q('#weatherInfo')
 };
 
+/* ---------- state ---------- */
 let state = load() || {
   theme: (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
   mode: MODES.ALARM, locked:false,
@@ -40,32 +52,37 @@ let state = load() || {
   sensorEnabled:false, soundEnabled:false
 };
 
+/* ---------- apply theme + initial text safely ---------- */
 document.body.dataset.theme = state.theme;
-document.body.dataset.mode = state.mode;
-q('#modeTitle')?.textContent = TITLES[state.mode];
-els.modeSubtitle.textContent = SUBS[state.mode];
-els.themeIcon.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
+document.body.dataset.mode  = state.mode;
+setText('#modeTitle', TITLES[state.mode]);
+setText('#modeSubtitle', SUBS[state.mode]);
+if (els.themeIcon) els.themeIcon.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
 
-// PWA
+/* ---------- PWA ---------- */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
-// ===== Theme =====
-els.themeToggle.addEventListener('click', ()=>{
-  state.theme = state.theme==='dark' ? 'light' : 'dark';
-  document.body.dataset.theme = state.theme;
-  els.themeIcon.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
-  save();
-});
+/* ---------- Theme ---------- */
+if (els.themeToggle){
+  els.themeToggle.addEventListener('click', ()=>{
+    state.theme = state.theme==='dark' ? 'light' : 'dark';
+    document.body.dataset.theme = state.theme;
+    if (els.themeIcon) els.themeIcon.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
+    save();
+  });
+}
 
-// ===== Lock + swipe =====
+/* ---------- Lock + swipe ---------- */
 function setLocked(v){
   state.locked=!!v; save();
-  els.lockBtn.innerHTML = state.locked
-    ? `<svg class="icon"><use href="#i-lock"/></svg><span>Unlock</span>`
-    : `<svg class="icon"><use href="#i-lock"/></svg><span>Lock</span>`;
+  if (els.lockBtn){
+    els.lockBtn.innerHTML = state.locked
+      ? `<svg class="icon"><use href="#i-lock"/></svg><span>Unlock</span>`
+      : `<svg class="icon"><use href="#i-lock"/></svg><span>Lock</span>`;
+  }
   setStatus(state.locked ? 'Mode locked' : 'Mode unlocked');
 }
-els.lockBtn.addEventListener('click', ()=> setLocked(!state.locked));
+if (els.lockBtn) els.lockBtn.addEventListener('click', ()=> setLocked(!state.locked));
 
 let sx=0, sy=0, st=0;
 window.addEventListener('touchstart',e=>{const t=e.changedTouches[0]; sx=t.clientX; sy=t.clientY; st=Date.now();},{passive:true});
@@ -79,7 +96,7 @@ window.addEventListener('touchend',e=>{
   setMode(next);
 },{passive:true});
 
-// ===== Orientation =====
+/* ---------- Orientation ---------- */
 let usingSensors=false, handler=null, rafGate=false;
 function modeFrom({beta=null,gamma=null,angle=null,winOri=null}){
   if(beta!==null && gamma!==null){
@@ -126,19 +143,27 @@ window.addEventListener('resize', ()=>{
   setMode(modeFrom({angle,winOri}));
 },{passive:true});
 
-// ===== Mode router =====
+/* ---------- Mode router ---------- */
+function showOnly(modeKey){
+  ['alarm','timer','stopwatch','weather'].forEach(k=>{
+    const p = q('#mode-' + k);
+    if (!p) return;
+    p.classList.toggle('active', k === modeKey);
+  });
+  document.body.dataset.mode = modeKey;
+  setText('#modeTitle', TITLES[modeKey]);
+  setText('#modeSubtitle', SUBS[modeKey]);
+}
+
 function setMode(m){
   if (!Object.values(MODES).includes(m)) return;
   if (state.mode===m) return;
   state.mode=m; save();
-  for(const k of Object.values(MODES)) els.p[k].classList.toggle('active', k===m);
-  document.body.dataset.mode = m;
-  (q('#modeTitle')||{}).textContent = TITLES[m];
-  els.modeSubtitle.textContent = SUBS[m];
+  showOnly(m);
   if (m===MODES.WEATHER && !state.lastWeather) lazyWeather();
 }
 
-// ===== Audio =====
+/* ---------- Audio ---------- */
 let audioCtx=null;
 function ensureAudio(){ if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch{} } state.soundEnabled=!!audioCtx; save(); return !!audioCtx; }
 function beep(pattern=[500,200,700,200,900,300], times=2){
@@ -157,69 +182,69 @@ function beep(pattern=[500,200,700,200,900,300], times=2){
   if (navigator.vibrate) navigator.vibrate([140,80,140]);
 }
 
-// Overlay
-function showOverlay(){ els.overlay.classList.add('show'); els.overlay.setAttribute('aria-hidden','false'); }
-function hideOverlay(){ els.overlay.classList.remove('show'); els.overlay.setAttribute('aria-hidden','true'); }
-els.closeOverlay.addEventListener('click', hideOverlay);
-els.enableMotion.addEventListener('click', async()=>{ await enableSensors(); hideOverlay(); });
-els.enableSound.addEventListener('click', ()=>{ ensureAudio(); hideOverlay(); });
+/* ---------- Overlay ---------- */
+function showOverlay(){ if(els.overlay){ els.overlay.classList.add('show'); els.overlay.setAttribute('aria-hidden','false'); } }
+function hideOverlay(){ if(els.overlay){ els.overlay.classList.remove('show'); els.overlay.setAttribute('aria-hidden','true'); } }
+if (els.closeOverlay)  els.closeOverlay.addEventListener('click', hideOverlay);
+if (els.enableMotion) els.enableMotion.addEventListener('click', async()=>{ await enableSensors(); hideOverlay(); });
+if (els.enableSound)  els.enableSound.addEventListener('click', ()=>{ ensureAudio(); hideOverlay(); });
 
-// ===== Alarm =====
+/* ---------- Alarm ---------- */
 let clockT=0, alarmT=0;
 function fmtClock(d){ return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
-function startClock(){ if(clockT) return; const tick=()=> els.alarmNow.textContent = fmtClock(new Date()); tick(); clockT=setInterval(tick,500); }
+function startClock(){ if(clockT) return; const tick=()=> { if(els.alarmNow) els.alarmNow.textContent = fmtClock(new Date()); }; tick(); clockT=setInterval(tick,500); }
 function nextAlarm(hhmm){ if(!hhmm) return null; const [h,m]=hhmm.split(':').map(Number); const d=new Date(); d.setSeconds(0,0); d.setHours(h,m,0,0); if(d<=Date.now()) d.setDate(d.getDate()+1); return d; }
 function scheduleAlarm(ts){ clearTimeout(alarmT); const d=ts-Date.now(); if(d<=0) return triggerAlarm(); alarmT=setTimeout(triggerAlarm,d); }
-function triggerAlarm(){ state.alarmRinging=true; save(); els.stopAlarm.classList.remove('hidden'); els.alarmInfo.textContent='🔔 Alarm ringing!'; beep(); }
-function cancelAlarm(){ clearTimeout(alarmT); state.alarmAt=null; state.alarmRinging=false; save(); els.stopAlarm.classList.add('hidden'); els.alarmInfo.textContent='No alarm set.'; }
-els.setAlarm.addEventListener('click', ()=>{
-  const d=nextAlarm(els.alarmTime.value); if(!d){ els.alarmInfo.textContent='Pick a time first.'; return; }
+function triggerAlarm(){ state.alarmRinging=true; save(); if(els.stopAlarm) els.stopAlarm.classList.remove('hidden'); if(els.alarmInfo) els.alarmInfo.textContent='🔔 Alarm ringing!'; beep(); }
+function cancelAlarm(){ clearTimeout(alarmT); state.alarmAt=null; state.alarmRinging=false; save(); if(els.stopAlarm) els.stopAlarm.classList.add('hidden'); if(els.alarmInfo) els.alarmInfo.textContent='No alarm set.'; }
+if (els.setAlarm) els.setAlarm.addEventListener('click', ()=>{
+  const d=nextAlarm(els.alarmTime?.value); if(!d){ if(els.alarmInfo) els.alarmInfo.textContent='Pick a time first.'; return; }
   state.alarmAt=d.getTime(); state.alarmRinging=false; save(); scheduleAlarm(state.alarmAt);
-  els.stopAlarm.classList.add('hidden');
+  if(els.stopAlarm) els.stopAlarm.classList.add('hidden');
   const mins=Math.round((d-Date.now())/60000);
-  els.alarmInfo.textContent=`Alarm set for ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} (~${mins} min).`;
+  if(els.alarmInfo) els.alarmInfo.textContent=`Alarm set for ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} (~${mins} min).`;
 });
-els.clearAlarm.addEventListener('click', cancelAlarm);
-els.stopAlarm.addEventListener('click', ()=>{ state.alarmRinging=false; save(); els.stopAlarm.classList.add('hidden'); });
+if (els.clearAlarm) els.clearAlarm.addEventListener('click', cancelAlarm);
+if (els.stopAlarm)  els.stopAlarm.addEventListener('click', ()=>{ state.alarmRinging=false; save(); els.stopAlarm.classList.add('hidden'); });
 
-// ===== Timer =====
+/* ---------- Timer ---------- */
 let tInt=0;
 function fmtMS(ms){ const neg=ms<0; if(neg) ms=-ms; const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), s=Math.floor((ms%60000)/1000);
   return (neg?'-':'') + (h?String(h).padStart(2,'0')+':':'') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'); }
-function tRender(){ els.tDisp.textContent=fmtMS(state.tLeft); }
+function tRender(){ if(els.tDisp) els.tDisp.textContent=fmtMS(state.tLeft); }
 function tStart(){ if(state.tRun) return; state.tRun=true; state.tLast=performance.now(); save();
   tInt=setInterval(()=>{ const now=performance.now(); state.tLeft -= (now-state.tLast); state.tLast=now;
     if(state.tLeft<=0){ state.tLeft=0; tPause(); beep([700,200,500,200,900,300],2); }
     tRender(); },200);
-  els.tSP.textContent='Pause';
+  if(els.tSP) els.tSP.textContent='Pause';
 }
-function tPause(){ if(!state.tRun) return; state.tRun=false; save(); clearInterval(tInt); els.tSP.textContent='Start'; }
+function tPause(){ if(!state.tRun) return; state.tRun=false; save(); clearInterval(tInt); if(els.tSP) els.tSP.textContent='Start'; }
 function tReset(to=null){ tPause(); state.tLeft = (to??state.tTotal); tRender(); save(); }
-els.tSet.addEventListener('click', ()=>{
-  const m=Math.max(0, parseInt(els.tMin.value||'0',10)||0);
-  const s=Math.min(59, Math.max(0, parseInt(els.tSec.value||'0',10)||0));
+if (els.tSet) els.tSet.addEventListener('click', ()=>{
+  const m=Math.max(0, parseInt(els.tMin?.value||'0',10)||0);
+  const s=Math.min(59, Math.max(0, parseInt(els.tSec?.value||'0',10)||0));
   const total=(m*60+s)*1000; state.tTotal=total||0; tReset(total);
 });
-els.tSP.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
-els.tReset.addEventListener('click', ()=> tReset());
+if (els.tSP)    els.tSP.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
+if (els.tReset) els.tReset.addEventListener('click', ()=> tReset());
 
-// ===== Stopwatch =====
+/* ---------- Stopwatch ---------- */
 let swInt=0;
 function swRender(ms){ const m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000), h=Math.floor((ms%1000)/10);
-  els.swDisp.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(h).padStart(2,'0')}`; }
+  if(els.swDisp) els.swDisp.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(h).padStart(2,'0')}`; }
 function swStart(){ if(state.swRun) return; state.swRun=true; state.swStart=performance.now()-state.swElapsed; save();
   swInt=setInterval(()=>{ state.swElapsed=performance.now()-state.swStart; swRender(state.swElapsed); },50);
-  els.swStart.textContent='Pause';
+  if(els.swStart) els.swStart.textContent='Pause';
 }
-function swPause(){ if(!state.swRun) return; state.swRun=false; save(); clearInterval(swInt); els.swStart.textContent='Start'; }
+function swPause(){ if(!state.swRun) return; state.swRun=false; save(); clearInterval(swInt); if(els.swStart) els.swStart.textContent='Start'; }
 function swReset(){ swPause(); state.swElapsed=0; state.swLaps=[]; save(); swRender(0); renderLaps(); }
 function swLap(){ state.swLaps.unshift(state.swElapsed); save(); renderLaps(); if(navigator.vibrate) navigator.vibrate(20); }
-function renderLaps(){ els.swLaps.innerHTML = state.swLaps.map((ms,i)=>`Lap ${state.swLaps.length-i}: ${fmtMS(ms)}`).join('<br>'); }
-els.swStart.addEventListener('click', ()=> state.swRun?swPause():swStart());
-els.swReset.addEventListener('click', swReset);
-els.swLap.addEventListener('click', swLap);
+function renderLaps(){ if(els.swLaps) els.swLaps.innerHTML = state.swLaps.map((ms,i)=>`Lap ${state.swLaps.length-i}: ${fmtMS(ms)}`).join('<br>'); }
+if (els.swStart) els.swStart.addEventListener('click', ()=> state.swRun?swPause():swStart());
+if (els.swReset) els.swReset.addEventListener('click', swReset);
+if (els.swLap)   els.swLap.addEventListener('click', swLap);
 
-// ===== Weather (Open‑Meteo, no key) =====
+/* ---------- Weather (Open‑Meteo, no key) ---------- */
 const WMAP = {0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Drizzle',53:'Drizzle',55:'Drizzle',56:'Freezing drizzle',57:'Freezing drizzle',61:'Rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Freezing rain',71:'Snowfall',73:'Snowfall',75:'Snow',77:'Snow grains',80:'Rain showers',81:'Rain showers',82:'Heavy showers',85:'Snow showers',86:'Heavy snow',95:'Thunderstorm',96:'Thunder w/ hail',99:'Thunder w/ hail'};
 let fetchedWeather=false;
 async function reverseCity(lat,lon){
@@ -242,39 +267,37 @@ async function searchCity(qStr){
 }
 function renderWeather(){
   const w=state.lastWeather; if(!w) return;
-  els.wCity.textContent=w.city; els.wTemp.textContent=`${w.temp}°`;
-  els.wMinMax.textContent=`${w.min}° / ${w.max}°`; els.wDesc.textContent=w.desc;
-  els.wHead.textContent=`${w.desc} — ${w.temp}°C`;
+  if(els.wCity)  els.wCity.textContent=w.city;
+  if(els.wTemp)  els.wTemp.textContent=`${w.temp}°`;
+  if(els.wMinMax)els.wMinMax.textContent=`${w.min}° / ${w.max}°`;
+  if(els.wDesc)  els.wDesc.textContent=w.desc;
+  if(els.wHead)  els.wHead.textContent=`${w.desc} — ${w.temp}°C`;
 }
 function lazyWeather(){
   if(fetchedWeather && state.lastWeather) return; fetchedWeather=true;
   if('geolocation' in navigator){
     navigator.geolocation.getCurrentPosition(
       p=>fetchWeatherByCoords(p.coords.latitude, p.coords.longitude),
-      _=>{ els.wInfo.textContent='Location blocked. Enter city manually.'; },
+      _=>{ if(els.wInfo) els.wInfo.textContent='Location blocked. Enter city manually.'; },
       { maximumAge: 3600_000, timeout:8000, enableHighAccuracy:false }
     );
-  }else els.wInfo.textContent='Geolocation unavailable. Enter city manually.';
+  }else if(els.wInfo){ els.wInfo.textContent='Geolocation unavailable. Enter city manually.'; }
 }
-els.citySearch.addEventListener('click', async()=>{
-  const qv=els.cityInput.value.trim(); if(!qv) return;
-  els.wInfo.textContent='Searching…';
-  try{ await searchCity(qv); els.wInfo.textContent='Data: Open‑Meteo'; }catch{ els.wInfo.textContent='Not found. Try another city.'; }
+if (els.citySearch) els.citySearch.addEventListener('click', async()=>{
+  const qv=els.cityInput?.value?.trim(); if(!qv) return;
+  if(els.wInfo) els.wInfo.textContent='Searching…';
+  try{ await searchCity(qv); if(els.wInfo) els.wInfo.textContent='Data: Open‑Meteo'; }catch{ if(els.wInfo) els.wInfo.textContent='Not found. Try another city.'; }
 });
 
-// ===== Battery: pause when hidden =====
+/* ---------- Battery: pause when hidden ---------- */
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ if(state.tRun) tPause(); if(state.swRun) swPause(); } });
 
-// ===== Boot =====
-function setStatus(t){ els.status.textContent='Orientation: '+t; }
-function q(s){ return document.querySelector(s); }
-function save(){ try{ localStorage.setItem('oriento-min', JSON.stringify(state)); }catch{} }
-function load(){ try{ return JSON.parse(localStorage.getItem('oriento-min')||''); }catch{ return null; } }
+/* ---------- Status ---------- */
+function setStatus(t){ if(els.status) els.status.textContent='Orientation: '+t; }
 
+/* ---------- Boot ---------- */
 function initMode(){
-  for(const k of Object.values(MODES)) els.p[k].classList.toggle('active', k===state.mode);
-  q('#modeTitle')?.textContent=TITLES[state.mode];
-  els.modeSubtitle.textContent=SUBS[state.mode];
+  showOnly(state.mode);
   if (state.mode===MODES.WEATHER && !state.lastWeather) lazyWeather();
 }
 initMode();
