@@ -5,8 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0b0c" />
   <title>Oriento — Minimal Orientation Tools</title>
+
+  <!-- Minimal inline safety so only one mode shows even if external CSS fails -->
+  <style>
+    .mode{display:none;opacity:0;transform:translateY(6px);pointer-events:none}
+    .mode.active{display:block;opacity:1;transform:none;pointer-events:auto}
+  </style>
+
+  <!-- Correct path: you said your file is style.css (not styles.css) -->
+  <link rel="stylesheet" href="./style.css" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./styles.css" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='13' r='7' fill='none' stroke='%236ee7ff' stroke-width='1.6'/%3E%3Cpath d='M10 2h4M12 4v2' stroke='%236ee7ff' stroke-width='1.6'/%3E%3Cpath d='M12 13l3-3' stroke='%236ee7ff' stroke-width='1.6'/%3E%3C/svg%3E" />
 </head>
 <body data-mode="alarm" data-theme="dark">
@@ -169,6 +177,10 @@
     </footer>
   </main>
 
+  <!-- Keep app.js at the end; module is fine -->
   <script type="module" src="./app.js"></script>
+
+  <!-- No-JS note (optional) -->
+  <noscript>Your browser needs JavaScript enabled to run Oriento.</noscript>
 </body>
 </html>
