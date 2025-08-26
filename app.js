@@ -3,26 +3,24 @@ const MODES = { ALARM:'alarm', TIMER:'timer', STOPWATCH:'stopwatch', WEATHER:'we
 const TITLES = { alarm:'Alarm', timer:'Timer', stopwatch:'Stopwatch', weather:'Weather' };
 const SUBS = {
   alarm:'Portrait upright',
-  timer:'Portrait upside‑down',
-  stopwatch:'Landscape right‑side',
-  weather:'Landscape left‑side'
+  timer:'Portrait upside-down',
+  stopwatch:'Landscape right-side',
+  weather:'Landscape left-side'
 };
 
 /* ---------- small helpers ---------- */
 function q(sel){ return document.querySelector(sel); }
-function setText(sel, value){
-  const el = q(sel);
-  if (el != null) el.textContent = value;
-}
+function setText(sel, value){ const el = q(sel); if (el) el.textContent = value; }
 function save(){ try{ localStorage.setItem('oriento-min', JSON.stringify(state)); }catch{} }
 function load(){ try{ return JSON.parse(localStorage.getItem('oriento-min')||''); }catch{ return null; } }
+function setStatus(t){ const s=q('#statusChip'); if(s) s.textContent='Orientation: '+t; }
 
 /* ---------- cache elements ---------- */
 const els = {
   overlay: q('#overlay'), enableMotion:q('#enableMotion'), enableSound:q('#enableSound'), closeOverlay:q('#closeOverlay'),
   status:q('#statusChip'), themeToggle:q('#themeToggle'), themeIcon:q('#themeIcon'),
   lockBtn:q('#lockBtn'), settingsBtn:q('#settingsBtn'),
-  // panels
+  // panels (sections)
   p:{ alarm:q('#mode-alarm'), timer:q('#mode-timer'), stopwatch:q('#mode-stopwatch'), weather:q('#mode-weather') },
   // alarm
   alarmNow:q('#alarmNow'), alarmTime:q('#alarmTime'), setAlarm:q('#setAlarm'), clearAlarm:q('#clearAlarm'), alarmInfo:q('#alarmInfo'), stopAlarm:q('#stopAlarm'),
@@ -36,11 +34,12 @@ const els = {
 };
 
 /* ---------- state ---------- */
+const prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 let state = load() || {
-  theme: (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+  theme: prefersDark ? 'dark' : 'light',
   mode: MODES.ALARM, locked:false,
   // alarm
-  alarmAt:null, alarmRinging:false,
+  alarmAt:null, alarmRinging:false, alarmSound:'chime', alarmVolume:0.6,
   // timer
   tTotal:5*60*1000, tLeft:5*60*1000, tRun:false, tLast:0,
   // sw
@@ -61,14 +60,12 @@ if (els.themeIcon) els.themeIcon.setAttribute('href', state.theme==='dark' ? '#i
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
 /* ---------- Theme ---------- */
-if (els.themeToggle){
-  els.themeToggle.addEventListener('click', ()=>{
-    state.theme = state.theme==='dark' ? 'light' : 'dark';
-    document.body.dataset.theme = state.theme;
-    if (els.themeIcon) els.themeIcon.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
-    save();
-  });
-}
+els.themeToggle?.addEventListener('click', ()=>{
+  state.theme = state.theme==='dark' ? 'light' : 'dark';
+  document.body.dataset.theme = state.theme;
+  els.themeIcon?.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
+  save();
+});
 
 /* ---------- Lock + swipe ---------- */
 function setLocked(v){
@@ -80,7 +77,7 @@ function setLocked(v){
   }
   setStatus(state.locked ? 'Mode locked' : 'Mode unlocked');
 }
-if (els.lockBtn) els.lockBtn.addEventListener('click', ()=> setLocked(!state.locked));
+els.lockBtn?.addEventListener('click', ()=> setLocked(!state.locked));
 
 let sx=0, sy=0, st=0;
 window.addEventListener('touchstart',e=>{const t=e.changedTouches[0]; sx=t.clientX; sy=t.clientY; st=Date.now();},{passive:true});
@@ -161,9 +158,7 @@ function setMode(m){
 }
 
 /* ---------- Audio ---------- */
-let audioCtx=null;
-let alarmInterval=null, masterGain=null;
-
+let audioCtx=null, alarmInterval=null, masterGain=null;
 function ensureAudio(){
   if(!audioCtx){
     try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
@@ -171,20 +166,22 @@ function ensureAudio(){
   }
   return !!audioCtx;
 }
-
+async function resumeAudioIfSuspended(){
+  try{
+    if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+  }catch{}
+}
 function makeVoice(freq, t0, dur, type='sine', gain=0.6){
   const osc = audioCtx.createOscillator();
   const g   = audioCtx.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t0);
   g.gain.setValueAtTime(0.0001, t0);
-  // ADSR-ish
   g.gain.exponentialRampToValueAtTime(gain, t0+0.03);
   g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
   osc.connect(g); g.connect(masterGain);
   osc.start(t0);  osc.stop(t0+dur);
 }
-
 function playChimePattern(style='chime', vol=0.6){
   if(!ensureAudio()) return;
   if(!masterGain){ masterGain = audioCtx.createGain(); masterGain.connect(audioCtx.destination); }
@@ -196,16 +193,15 @@ function playChimePattern(style='chime', vol=0.6){
     makeVoice(880, t+0.00, 0.18, 'square', 0.45);
     makeVoice(660, t+0.22, 0.18, 'square', 0.45);
   }else{
-    // soft triad chime arpeggio: G5–B5–D6 with subtle detune/triangle overlay
-    const notes = [784, 988, 1175]; // Hz
+    // soft triad chime arpeggio
+    const notes = [784, 988, 1175]; // G5–B5–D6
     notes.forEach((f,i)=>{
       const st = t + i*0.16;
-      makeVoice(f, st, 0.28, 'sine',   0.38);
-      makeVoice(f*2, st, 0.20, 'triangle', 0.16); // airy overtone
+      makeVoice(f,   st, 0.28, 'sine',     0.38);
+      makeVoice(f*2, st, 0.20, 'triangle', 0.16);
     });
   }
 }
-
 function startAlarmTone(){
   if(!ensureAudio()) return;
   stopAlarmTone();
@@ -217,78 +213,94 @@ function stopAlarmTone(){
   if(alarmInterval){ clearInterval(alarmInterval); alarmInterval=null; }
   if(masterGain){ try{ masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.05); }catch{} }
 }
-
+// simple beep used by Timer completion
+function beep(){ playChimePattern('beep', state.alarmVolume ?? 0.6); }
 
 /* ---------- Overlay ---------- */
-function showOverlay(){ if(els.overlay){ els.overlay.classList.add('show'); els.overlay.setAttribute('aria-hidden','false'); } }
-function hideOverlay(){ if(els.overlay){ els.overlay.classList.remove('show'); els.overlay.setAttribute('aria-hidden','true'); } }
-if (els.closeOverlay)  els.closeOverlay.addEventListener('click', hideOverlay);
-if (els.enableMotion) els.enableMotion.addEventListener('click', async()=>{ await enableSensors(); hideOverlay(); });
-if (els.enableSound)  els.enableSound.addEventListener('click', ()=>{ ensureAudio(); hideOverlay(); });
+function showOverlay(){ els.overlay?.classList.add('show'); els.overlay?.setAttribute('aria-hidden','false'); }
+function hideOverlay(){ els.overlay?.classList.remove('show'); els.overlay?.setAttribute('aria-hidden','true'); }
+els.closeOverlay?.addEventListener('click', hideOverlay);
+els.enableMotion?.addEventListener('click', async()=>{ await enableSensors(); hideOverlay(); });
+els.enableSound?.addEventListener('click', async()=>{ if(ensureAudio()) await resumeAudioIfSuspended(); hideOverlay(); });
 
 /* ---------- Alarm ---------- */
 let clockT=0, alarmT=0;
 function fmtClock(d){ return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
-function startClock(){ if(clockT) return; const tick=()=> { if(els.alarmNow) els.alarmNow.textContent = fmtClock(new Date()); }; tick(); clockT=setInterval(tick,500); }
+function startClock(){ if(clockT) return; const tick=()=> { els.alarmNow && (els.alarmNow.textContent = fmtClock(new Date())); }; tick(); clockT=setInterval(tick,500); }
 function nextAlarm(hhmm){ if(!hhmm) return null; const [h,m]=hhmm.split(':').map(Number); const d=new Date(); d.setSeconds(0,0); d.setHours(h,m,0,0); if(d<=Date.now()) d.setDate(d.getDate()+1); return d; }
 function scheduleAlarm(ts){ clearTimeout(alarmT); const d=ts-Date.now(); if(d<=0) return triggerAlarm(); alarmT=setTimeout(triggerAlarm,d); }
 function triggerAlarm(){
   state.alarmRinging=true; save();
-  if(els.stopAlarm) els.stopAlarm.classList.remove('hidden');
+  els.stopAlarm?.classList.remove('hidden');
   if(els.alarmInfo) els.alarmInfo.textContent='🔔 Alarm ringing!';
-  startAlarmTone();   // <- new
-}function cancelAlarm(){ clearTimeout(alarmT); state.alarmAt=null; state.alarmRinging=false; save(); if(els.stopAlarm) els.stopAlarm.classList.add('hidden'); if(els.alarmInfo) els.alarmInfo.textContent='No alarm set.'; }
-if (els.setAlarm) els.setAlarm.addEventListener('click', ()=>{
-  const d=nextAlarm(els.alarmTime?.value); if(!d){ if(els.alarmInfo) els.alarmInfo.textContent='Pick a time first.'; return; }
+  startAlarmTone();
+}
+function cancelAlarm(){
+  clearTimeout(alarmT);
+  state.alarmAt=null; state.alarmRinging=false; save();
+  els.stopAlarm?.classList.add('hidden');
+  if(els.alarmInfo) els.alarmInfo.textContent='No alarm set.';
+  stopAlarmTone();
+}
+els.setAlarm?.addEventListener('click', async ()=>{
+  await resumeAudioIfSuspended();
+  const d=nextAlarm(els.alarmTime?.value);
+  if(!d){ if(els.alarmInfo) els.alarmInfo.textContent='Pick a time first.'; return; }
   state.alarmAt=d.getTime(); state.alarmRinging=false; save(); scheduleAlarm(state.alarmAt);
-  if(els.stopAlarm) els.stopAlarm.classList.add('hidden');
+  els.stopAlarm?.classList.add('hidden');
   const mins=Math.round((d-Date.now())/60000);
   if(els.alarmInfo) els.alarmInfo.textContent=`Alarm set for ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} (~${mins} min).`;
 });
-if (els.clearAlarm) els.clearAlarm.addEventListener('click', cancelAlarm);
-if (els.stopAlarm)  els.stopAlarm.addEventListener('click', ()=>{
+els.clearAlarm?.addEventListener('click', cancelAlarm);
+els.stopAlarm?.addEventListener('click', ()=>{
   state.alarmRinging=false; save();
-  stopAlarmTone();   // <- new
-  els.stopAlarm.classList.add('hidden');
+  stopAlarmTone();
+  els.stopAlarm?.classList.add('hidden');
 });
+
 /* ---------- Timer ---------- */
 let tInt=0;
-function fmtMS(ms){ const neg=ms<0; if(neg) ms=-ms; const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), s=Math.floor((ms%60000)/1000);
-  return (neg?'-':'') + (h?String(h).padStart(2,'0')+':':'') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'); }
-function tRender(){ if(els.tDisp) els.tDisp.textContent=fmtMS(state.tLeft); }
+function fmtMS(ms){
+  const neg=ms<0; if(neg) ms=-ms;
+  const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), s=Math.floor((ms%60000)/1000);
+  return (neg?'-':'') + (h?String(h).padStart(2,'0')+':':'') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+function tRender(){ els.tDisp && (els.tDisp.textContent=fmtMS(state.tLeft)); }
 function tStart(){ if(state.tRun) return; state.tRun=true; state.tLast=performance.now(); save();
   tInt=setInterval(()=>{ const now=performance.now(); state.tLeft -= (now-state.tLast); state.tLast=now;
-    if(state.tLeft<=0){ state.tLeft=0; tPause(); beep([700,200,500,200,900,300],2); }
+    if(state.tLeft<=0){ state.tLeft=0; tPause(); beep(); }
     tRender(); },200);
-  if(els.tSP) els.tSP.textContent='Pause';
+  els.tSP && (els.tSP.textContent='Pause');
 }
-function tPause(){ if(!state.tRun) return; state.tRun=false; save(); clearInterval(tInt); if(els.tSP) els.tSP.textContent='Start'; }
+function tPause(){ if(!state.tRun) return; state.tRun=false; save(); clearInterval(tInt); els.tSP && (els.tSP.textContent='Start'); }
 function tReset(to=null){ tPause(); state.tLeft = (to??state.tTotal); tRender(); save(); }
-if (els.tSet) els.tSet.addEventListener('click', ()=>{
+els.tSet?.addEventListener('click', ()=>{
   const m=Math.max(0, parseInt(els.tMin?.value||'0',10)||0);
   const s=Math.min(59, Math.max(0, parseInt(els.tSec?.value||'0',10)||0));
   const total=(m*60+s)*1000; state.tTotal=total||0; tReset(total);
 });
-if (els.tSP)    els.tSP.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
-if (els.tReset) els.tReset.addEventListener('click', ()=> tReset());
+els.tSP?.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
+els.tReset?.addEventListener('click', ()=> tReset());
 
 /* ---------- Stopwatch ---------- */
 let swInt=0;
-function swRender(ms){ const m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000), h=Math.floor((ms%1000)/10);
-  if(els.swDisp) els.swDisp.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(h).padStart(2,'0')}`; }
+function swRender(ms){
+  const m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000), h=Math.floor((ms%1000)/10);
+  els.swDisp && (els.swDisp.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(h).padStart(2,'0')}`);
+}
 function swStart(){ if(state.swRun) return; state.swRun=true; state.swStart=performance.now()-state.swElapsed; save();
   swInt=setInterval(()=>{ state.swElapsed=performance.now()-state.swStart; swRender(state.swElapsed); },50);
-  if(els.swStart) els.swStart.textContent='Pause';
+  els.swStart && (els.swStart.textContent='Pause');
 }
-function swPause(){ if(!state.swRun) return; state.swRun=false; save(); clearInterval(swInt); if(els.swStart) els.swStart.textContent='Start'; }
+function swPause(){ if(!state.swRun) return; state.swRun=false; save(); clearInterval(swInt); els.swStart && (els.swStart.textContent='Start'); }
 function swReset(){ swPause(); state.swElapsed=0; state.swLaps=[]; save(); swRender(0); renderLaps(); }
 function swLap(){ state.swLaps.unshift(state.swElapsed); save(); renderLaps(); if(navigator.vibrate) navigator.vibrate(20); }
-function renderLaps(){ if(els.swLaps) els.swLaps.innerHTML = state.swLaps.map((ms,i)=>`Lap ${state.swLaps.length-i}: ${fmtMS(ms)}`).join('<br>'); }
-if (els.swStart) els.swStart.addEventListener('click', ()=> state.swRun?swPause():swStart());
-if (els.swReset) els.swReset.addEventListener('click', swReset);
-if (els.swLap)   els.swLap.addEventListener('click', swLap);
+function renderLaps(){ els.swLaps && (els.swLaps.innerHTML = state.swLaps.map((ms,i)=>`Lap ${state.swLaps.length-i}: ${fmtMS(ms)}`).join('<br>')); }
+els.swStart?.addEventListener('click', ()=> state.swRun?swPause():swStart());
+els.swReset?.addEventListener('click', swReset);
+els.swLap  ?.addEventListener('click', swLap);
 
-/* ---------- Weather (Open‑Meteo, no key) ---------- */
+/* ---------- Weather (Open-Meteo, no key) ---------- */
 const WMAP = {0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Drizzle',53:'Drizzle',55:'Drizzle',56:'Freezing drizzle',57:'Freezing drizzle',61:'Rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Freezing rain',71:'Snowfall',73:'Snowfall',75:'Snow',77:'Snow grains',80:'Rain showers',81:'Rain showers',82:'Heavy showers',85:'Snow showers',86:'Heavy snow',95:'Thunderstorm',96:'Thunder w/ hail',99:'Thunder w/ hail'};
 let fetchedWeather=false;
 async function reverseCity(lat,lon){
@@ -311,33 +323,30 @@ async function searchCity(qStr){
 }
 function renderWeather(){
   const w=state.lastWeather; if(!w) return;
-  if(els.wCity)  els.wCity.textContent=w.city;
-  if(els.wTemp)  els.wTemp.textContent=`${w.temp}°`;
-  if(els.wMinMax)els.wMinMax.textContent=`${w.min}° / ${w.max}°`;
-  if(els.wDesc)  els.wDesc.textContent=w.desc;
-  if(els.wHead)  els.wHead.textContent=`${w.desc} — ${w.temp}°C`;
+  els.wCity  && (els.wCity.textContent=w.city);
+  els.wTemp  && (els.wTemp.textContent=`${w.temp}°`);
+  els.wMinMax&& (els.wMinMax.textContent=`${w.min}° / ${w.max}°`);
+  els.wDesc  && (els.wDesc.textContent=w.desc);
+  els.wHead  && (els.wHead.textContent=`${w.desc} — ${w.temp}°C`);
 }
 function lazyWeather(){
   if(fetchedWeather && state.lastWeather) return; fetchedWeather=true;
   if('geolocation' in navigator){
     navigator.geolocation.getCurrentPosition(
       p=>fetchWeatherByCoords(p.coords.latitude, p.coords.longitude),
-      _=>{ if(els.wInfo) els.wInfo.textContent='Location blocked. Enter city manually.'; },
+      _=>{ els.wInfo && (els.wInfo.textContent='Location blocked. Enter city manually.'); },
       { maximumAge: 3600_000, timeout:8000, enableHighAccuracy:false }
     );
   }else if(els.wInfo){ els.wInfo.textContent='Geolocation unavailable. Enter city manually.'; }
 }
-if (els.citySearch) els.citySearch.addEventListener('click', async()=>{
+els.citySearch?.addEventListener('click', async()=>{
   const qv=els.cityInput?.value?.trim(); if(!qv) return;
-  if(els.wInfo) els.wInfo.textContent='Searching…';
-  try{ await searchCity(qv); if(els.wInfo) els.wInfo.textContent='Data: Open‑Meteo'; }catch{ if(els.wInfo) els.wInfo.textContent='Not found. Try another city.'; }
+  els.wInfo && (els.wInfo.textContent='Searching…');
+  try{ await searchCity(qv); els.wInfo && (els.wInfo.textContent='Data: Open-Meteo'); }catch{ els.wInfo && (els.wInfo.textContent='Not found. Try another city.'); }
 });
 
 /* ---------- Battery: pause when hidden ---------- */
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ if(state.tRun) tPause(); if(state.swRun) swPause(); } });
-
-/* ---------- Status ---------- */
-function setStatus(t){ if(els.status) els.status.textContent='Orientation: '+t; }
 
 /* ---------- Boot ---------- */
 function initMode(){
@@ -351,50 +360,83 @@ if(state.alarmAt) scheduleAlarm(state.alarmAt);
 tRender(); if(state.tRun) tStart();
 swRender(state.swElapsed); renderLaps(); if(state.swRun) swStart();
 
-if (state.sensorEnabled) enableSensors();
-else {
+if (state.sensorEnabled) {
+  enableSensors();
+} else {
   const angle=screen.orientation?.angle, winOri=typeof window.orientation==='number'?window.orientation:null;
   setMode(modeFrom({angle,winOri}));
   setTimeout(()=>showOverlay(), 300);
-/* ---------- Settings & Help Panels (wiring) ---------- */
-const settingsPanel = document.querySelector('#settingsPanel');
-const helpPanel     = document.querySelector('#helpPanel');
-const helpBtn       = document.querySelector('#helpBtn'); // footer ?
+}
 
-function openModal(el){ if(el){ el.classList.add('show'); el.setAttribute('aria-hidden','false'); } }
-function closeModal(el){ if(el){ el.classList.remove('show'); el.setAttribute('aria-hidden','true'); } }
+/* ---------- Settings & Help Panels (robust wiring) ---------- */
+function $(s){ return document.querySelector(s); }
 
-// GEAR (top right)
-if (els.settingsBtn) els.settingsBtn.addEventListener('click', ()=>{
-  const sel = document.querySelector('#alarmSound');
-  const rng = document.querySelector('#alarmVolume');
+const settingsPanel = $('#settingsPanel');
+const helpPanel     = $('#helpPanel');
+const helpBtn       = $('#helpBtn');
+const settingsBtn   = $('#settingsBtn');
+
+function openModal(el){
+  if(!el){ console.warn('Modal element not found'); return; }
+  el.classList.add('show');
+  el.setAttribute('aria-hidden','false');
+}
+function closeModal(el){
+  if(!el) return;
+  el.classList.remove('show');
+  el.setAttribute('aria-hidden','true');
+}
+
+// Wire Settings (gear)
+settingsBtn?.addEventListener('click', async ()=>{
+  // populate fields from state
+  const sel = $('#alarmSound');
+  const rng = $('#alarmVolume');
   if(sel) sel.value = state.alarmSound || 'chime';
   if(rng) rng.value = state.alarmVolume ?? 0.6;
+
+  // make sure audio can play test tone
+  if(!ensureAudio()) console.warn('AudioContext unavailable (user gesture needed?)');
+
   openModal(settingsPanel);
 });
-document.querySelector('#closeSettings')?.addEventListener('click', ()=> closeModal(settingsPanel));
-document.querySelector('#saveSettings')?.addEventListener('click', ()=>{
-  const sel = document.querySelector('#alarmSound');
-  const rng = document.querySelector('#alarmVolume');
+
+$('#closeSettings')?.addEventListener('click', ()=> closeModal(settingsPanel));
+$('#saveSettings')?.addEventListener('click', ()=>{
+  const sel = $('#alarmSound');
+  const rng = $('#alarmVolume');
   if(sel) state.alarmSound = sel.value;
   if(rng) state.alarmVolume = parseFloat(rng.value || '0.6');
   save();
   closeModal(settingsPanel);
 });
-document.querySelector('#testAlarm')?.addEventListener('click', ()=>{
-  const sel = document.querySelector('#alarmSound')?.value || state.alarmSound;
-  const vol = parseFloat(document.querySelector('#alarmVolume')?.value || state.alarmVolume || 0.6);
-  ensureAudio();
-  if (typeof playChimePattern === 'function') playChimePattern(sel, vol);
+$('#testAlarm')?.addEventListener('click', async ()=>{
+  if(!ensureAudio()) return;
+  try{ if (audioCtx.state === 'suspended') await audioCtx.resume(); }catch{}
+  const sel = $('#alarmSound')?.value || state.alarmSound || 'chime';
+  const vol = parseFloat($('#alarmVolume')?.value || state.alarmVolume || 0.6);
+  playChimePattern(sel, vol);
 });
 
-// HELP (bottom right)
-if (helpBtn) helpBtn.addEventListener('click', ()=> openModal(helpPanel));
-document.querySelector('#closeHelp')?.addEventListener('click', ()=> closeModal(helpPanel));
-// Close when tapping outside
+// Wire Help (question mark button)
+helpBtn?.addEventListener('click', ()=> openModal(helpPanel));
+$('#closeHelp')?.addEventListener('click', ()=> closeModal(helpPanel));
+
+// Click outside to close
 [settingsPanel, helpPanel].forEach(m=>{
-  m?.addEventListener('click', e=>{ if(e.target===m) closeModal(m); });
+  m?.addEventListener('click', e=>{ if(e.target === m) closeModal(m); });
 });
 
+// Esc to close
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape'){
+    if(settingsPanel?.classList.contains('show')) closeModal(settingsPanel);
+    if(helpPanel?.classList.contains('show')) closeModal(helpPanel);
+  }
+});
 
-}
+// Log missing elements (helps debug quickly)
+if(!settingsBtn)  console.warn('#settingsBtn not found');
+if(!helpBtn)      console.warn('#helpBtn not found');
+if(!settingsPanel)console.warn('#settingsPanel not found');
+if(!helpPanel)    console.warn('#helpPanel not found');

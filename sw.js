@@ -86,6 +86,7 @@ self.addEventListener('fetch', event => {
   // Same-origin static assets: cache-first (stale-while-revalidate)
   if (isSameOrigin(request.url)) {
     event.respondWith((async () => {
+      const CACHE_VERSION = 'oriento-min-v2'; // increment this
       const cache = await caches.open(STATIC_CACHE);
       const cached = await cache.match(request, { ignoreSearch: true });
       const fetchAndUpdate = fetch(request).then(resp => {
