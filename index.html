@@ -210,14 +210,13 @@
   </div>
 </div>
 
-<!-- Settings panel -->
+<!-- Settings -->
 <div id="settingsPanel" class="modal" aria-hidden="true">
   <div class="sheet">
     <div class="sheet-head">
       <h3>Settings</h3>
       <button id="closeSettings" class="btn ghost">Close</button>
     </div>
-
     <div class="field">
       <label for="alarmSound">Alarm sound</label>
       <select id="alarmSound" class="input">
@@ -225,12 +224,10 @@
         <option value="beep">Classic beep</option>
       </select>
     </div>
-
     <div class="field">
       <label for="alarmVolume">Volume</label>
       <input id="alarmVolume" class="input" type="range" min="0" max="1" step="0.01">
     </div>
-
     <div class="row" style="gap:8px;margin-top:8px">
       <button id="testAlarm" class="btn">Test alarm</button>
       <button id="saveSettings" class="btn primary">Save</button>
@@ -238,7 +235,7 @@
   </div>
 </div>
 
-<!-- Help panel -->
+<!-- Help -->
 <div id="helpPanel" class="modal" aria-hidden="true">
   <div class="sheet">
     <div class="sheet-head">
@@ -252,10 +249,9 @@
       <li><strong>Landscape ←</strong> — Weather</li>
     </ul>
     <p class="note">Tap <em>Enable Motion</em> once (iOS) to unlock precise orientation.</p>
-    <p class="note">Use <em>Lock</em> + swipe (←/→) for manual switching during demos.</p>
+    <p class="note">Use <em>Lock</em> + swipe (←/→) to switch while locked.</p>
   </div>
 </div>
-
 
 </body>
 </html>

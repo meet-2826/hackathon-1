@@ -356,15 +356,15 @@ else {
   const angle=screen.orientation?.angle, winOri=typeof window.orientation==='number'?window.orientation:null;
   setMode(modeFrom({angle,winOri}));
   setTimeout(()=>showOverlay(), 300);
-/* ---------- Settings & Help Panels ---------- */
+/* ---------- Settings & Help Panels (wiring) ---------- */
 const settingsPanel = document.querySelector('#settingsPanel');
 const helpPanel     = document.querySelector('#helpPanel');
-const helpBtn       = document.querySelector('#helpBtn'); // footer button
+const helpBtn       = document.querySelector('#helpBtn'); // footer ?
 
-function openModal(el){ if(!el) return; el.classList.add('show'); el.setAttribute('aria-hidden','false'); }
-function closeModal(el){ if(!el) return; el.classList.remove('show'); el.setAttribute('aria-hidden','true'); }
+function openModal(el){ if(el){ el.classList.add('show'); el.setAttribute('aria-hidden','false'); } }
+function closeModal(el){ if(el){ el.classList.remove('show'); el.setAttribute('aria-hidden','true'); } }
 
-// top-right gear opens settings
+// GEAR (top right)
 if (els.settingsBtn) els.settingsBtn.addEventListener('click', ()=>{
   const sel = document.querySelector('#alarmSound');
   const rng = document.querySelector('#alarmVolume');
@@ -373,7 +373,6 @@ if (els.settingsBtn) els.settingsBtn.addEventListener('click', ()=>{
   openModal(settingsPanel);
 });
 document.querySelector('#closeSettings')?.addEventListener('click', ()=> closeModal(settingsPanel));
-
 document.querySelector('#saveSettings')?.addEventListener('click', ()=>{
   const sel = document.querySelector('#alarmSound');
   const rng = document.querySelector('#alarmVolume');
@@ -382,25 +381,20 @@ document.querySelector('#saveSettings')?.addEventListener('click', ()=>{
   save();
   closeModal(settingsPanel);
 });
-
 document.querySelector('#testAlarm')?.addEventListener('click', ()=>{
   const sel = document.querySelector('#alarmSound')?.value || state.alarmSound;
   const vol = parseFloat(document.querySelector('#alarmVolume')?.value || state.alarmVolume || 0.6);
   ensureAudio();
-  playChimePattern(sel, vol); // uses the improved audio from earlier
+  if (typeof playChimePattern === 'function') playChimePattern(sel, vol);
 });
 
-// bottom-right ? opens help
+// HELP (bottom right)
 if (helpBtn) helpBtn.addEventListener('click', ()=> openModal(helpPanel));
 document.querySelector('#closeHelp')?.addEventListener('click', ()=> closeModal(helpPanel));
+// Close when tapping outside
+[settingsPanel, helpPanel].forEach(m=>{
+  m?.addEventListener('click', e=>{ if(e.target===m) closeModal(m); });
+});
 
-// click outside to close; ESC to close
-[settingsPanel, helpPanel].forEach(mod=>{
-  if(!mod) return;
-  mod.addEventListener('click', (e)=>{ if(e.target===mod) closeModal(mod); });
-});
-document.addEventListener('keydown', (e)=>{
-  if(e.key==='Escape'){ closeModal(settingsPanel); closeModal(helpPanel); }
-});
 
 }
