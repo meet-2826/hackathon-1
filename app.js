@@ -356,51 +356,51 @@ else {
   const angle=screen.orientation?.angle, winOri=typeof window.orientation==='number'?window.orientation:null;
   setMode(modeFrom({angle,winOri}));
   setTimeout(()=>showOverlay(), 300);
-  /* ---------- Settings & Help Panels ---------- */
-const settingsPanel = q('#settingsPanel');
-const helpPanel     = q('#helpPanel');
+/* ---------- Settings & Help Panels ---------- */
+const settingsPanel = document.querySelector('#settingsPanel');
+const helpPanel     = document.querySelector('#helpPanel');
+const helpBtn       = document.querySelector('#helpBtn'); // footer button
 
 function openModal(el){ if(!el) return; el.classList.add('show'); el.setAttribute('aria-hidden','false'); }
 function closeModal(el){ if(!el) return; el.classList.remove('show'); el.setAttribute('aria-hidden','true'); }
 
-// Top-right GEAR opens settings
+// top-right gear opens settings
 if (els.settingsBtn) els.settingsBtn.addEventListener('click', ()=>{
-  // preload current settings
-  const sel = q('#alarmSound'), rng = q('#alarmVolume');
+  const sel = document.querySelector('#alarmSound');
+  const rng = document.querySelector('#alarmVolume');
   if(sel) sel.value = state.alarmSound || 'chime';
   if(rng) rng.value = state.alarmVolume ?? 0.6;
   openModal(settingsPanel);
 });
-const closeSettings = q('#closeSettings');
-if (closeSettings) closeSettings.addEventListener('click', ()=> closeModal(settingsPanel));
+document.querySelector('#closeSettings')?.addEventListener('click', ()=> closeModal(settingsPanel));
 
-const saveSettings = q('#saveSettings');
-if (saveSettings) saveSettings.addEventListener('click', ()=>{
-  const sel = q('#alarmSound'), rng = q('#alarmVolume');
+document.querySelector('#saveSettings')?.addEventListener('click', ()=>{
+  const sel = document.querySelector('#alarmSound');
+  const rng = document.querySelector('#alarmVolume');
   if(sel) state.alarmSound = sel.value;
-  if(rng) state.alarmVolume = parseFloat(rng.value||'0.6');
-  save(); closeModal(settingsPanel);
+  if(rng) state.alarmVolume = parseFloat(rng.value || '0.6');
+  save();
+  closeModal(settingsPanel);
 });
 
-const testAlarm = q('#testAlarm');
-if (testAlarm) testAlarm.addEventListener('click', ()=>{
-  // play a single chime burst at current UI values without latching
-  const sel = q('#alarmSound')?.value || state.alarmSound;
-  const vol = parseFloat(q('#alarmVolume')?.value || state.alarmVolume || 0.6);
+document.querySelector('#testAlarm')?.addEventListener('click', ()=>{
+  const sel = document.querySelector('#alarmSound')?.value || state.alarmSound;
+  const vol = parseFloat(document.querySelector('#alarmVolume')?.value || state.alarmVolume || 0.6);
   ensureAudio();
-  playChimePattern(sel, vol);
+  playChimePattern(sel, vol); // uses the improved audio from earlier
 });
 
-// Bottom-right HELP button opens help panel
-const helpBtn = q('#helpBtn');
+// bottom-right ? opens help
 if (helpBtn) helpBtn.addEventListener('click', ()=> openModal(helpPanel));
-const closeHelp = q('#closeHelp');
-if (closeHelp) closeHelp.addEventListener('click', ()=> closeModal(helpPanel));
+document.querySelector('#closeHelp')?.addEventListener('click', ()=> closeModal(helpPanel));
 
-// Close on outside click
+// click outside to close; ESC to close
 [settingsPanel, helpPanel].forEach(mod=>{
   if(!mod) return;
   mod.addEventListener('click', (e)=>{ if(e.target===mod) closeModal(mod); });
+});
+document.addEventListener('keydown', (e)=>{
+  if(e.key==='Escape'){ closeModal(settingsPanel); closeModal(helpPanel); }
 });
 
 }
