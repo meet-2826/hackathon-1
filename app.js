@@ -46,7 +46,12 @@ let state = load() || {
   swRun:false, swStart:0, swElapsed:0, swLaps:[],
   // weather
   lastWeather:null,
-  sensorEnabled:false, soundEnabled:false
+  sensorEnabled:false, soundEnabled:false,
+
+  voiceEnabled: false,
+  voiceName: '',
+  voiceRate: 1,
+
 };
 
 /* ---------- apply theme + initial text safely ---------- */
@@ -90,6 +95,38 @@ window.addEventListener('touchend',e=>{
   const next = dx<0 ? order[(i+1)%order.length] : order[(i-1+order.length)%order.length];
   setMode(next);
 },{passive:true});
+/* ---------- Speech (Web Speech API) ---------- */
+let speechVoices = [];
+function loadVoicesIntoSelect(){
+  if (!('speechSynthesis' in window)) return;
+  speechVoices = speechSynthesis.getVoices() || [];
+  const sel = document.querySelector('#voiceSelect');
+  if (!sel) return;
+  const current = state.voiceName || '';
+  sel.innerHTML = `<option value="">Auto voice</option>` +
+    speechVoices
+      .map(v => `<option value="${v.name}" ${v.name===current?'selected':''}>${v.name} (${v.lang})</option>`)
+      .join('');
+}
+// some browsers populate voices async:
+if ('speechSynthesis' in window) {
+  speechSynthesis.onvoiceschanged = loadVoicesIntoSelect;
+}
+
+function speak(text){
+  if (!state.voiceEnabled) return false;
+  if (!('speechSynthesis' in window)) return false;
+  try{
+    const u = new SpeechSynthesisUtterance(text);
+    if (state.voiceName){
+      const v = speechVoices.find(v => v.name === state.voiceName);
+      if (v) u.voice = v;
+    }
+    u.rate = state.voiceRate || 1;
+    window.speechSynthesis.speak(u);
+    return true;
+  }catch{ return false; }
+}
 
 /* ---------- Orientation ---------- */
 let usingSensors=false, handler=null, rafGate=false;
@@ -209,6 +246,10 @@ function startAlarmTone(){
   alarmInterval = setInterval(()=> playChimePattern(state.alarmSound, state.alarmVolume), 1600);
   if (navigator.vibrate) navigator.vibrate([180,80,180,80,220]);
 }
+  // Voice announce (time-aware)
+  const nowTxt = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  speak(`Alarm ringing. It is ${nowTxt}.`);
+
 function stopAlarmTone(){
   if(alarmInterval){ clearInterval(alarmInterval); alarmInterval=null; }
   if(masterGain){ try{ masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.05); }catch{} }
@@ -268,7 +309,11 @@ function fmtMS(ms){
 function tRender(){ els.tDisp && (els.tDisp.textContent=fmtMS(state.tLeft)); }
 function tStart(){ if(state.tRun) return; state.tRun=true; state.tLast=performance.now(); save();
   tInt=setInterval(()=>{ const now=performance.now(); state.tLeft -= (now-state.tLast); state.tLast=now;
-    if(state.tLeft<=0){ state.tLeft=0; tPause(); beep(); }
+   { if (state.tLeft<=0){
+  state.tLeft=0; tPause();
+  // Prefer voice; fallback to beep if speech disabled
+  if (!speak('Timer complete.')) beep();
+} }
     tRender(); },200);
   els.tSP && (els.tSP.textContent='Pause');
 }
@@ -281,6 +326,57 @@ els.tSet?.addEventListener('click', ()=>{
 });
 els.tSP?.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
 els.tReset?.addEventListener('click', ()=> tReset());
+
+// when opening settings, populate fields
+els.settingsBtn?.addEventListener('click', async ()=>{
+  await resumeAudioIfSuspended?.();
+  // existing sound fields
+  const selSound = document.querySelector('#alarmSound');
+  const rngVol   = document.querySelector('#alarmVolume');
+  if (selSound) selSound.value = state.alarmSound || 'chime';
+  if (rngVol)   rngVol.value   = state.alarmVolume ?? 0.6;
+
+  // NEW: voice fields
+  const chkVoice = document.querySelector('#voiceEnabled');
+  const selVoice = document.querySelector('#voiceSelect');
+  const rngRate  = document.querySelector('#voiceRate');
+  if (chkVoice) chkVoice.checked = !!state.voiceEnabled;
+  if (rngRate)  rngRate.value = state.voiceRate ?? 1;
+
+  // populate voices list
+  loadVoicesIntoSelect();
+
+  openModal(document.querySelector('#settingsPanel'));
+});
+
+document.querySelector('#saveSettings')?.addEventListener('click', ()=>{
+  // existing sound fields
+  const selSound = document.querySelector('#alarmSound');
+  const rngVol   = document.querySelector('#alarmVolume');
+  if(selSound) state.alarmSound = selSound.value;
+  if(rngVol)   state.alarmVolume = parseFloat(rngVol.value || '0.6');
+
+  // NEW: voice fields
+  const chkVoice = document.querySelector('#voiceEnabled');
+  const selVoice = document.querySelector('#voiceSelect');
+  const rngRate  = document.querySelector('#voiceRate');
+  state.voiceEnabled = !!chkVoice?.checked;
+  state.voiceName    = selVoice?.value || '';
+  state.voiceRate    = parseFloat(rngRate?.value || '1');
+
+  save();
+  closeModal(document.querySelector('#settingsPanel'));
+});
+
+// test button now also speaks
+document.querySelector('#testAlarm')?.addEventListener('click', async ()=>{
+  if(!ensureAudio()) return;
+  await resumeAudioIfSuspended?.();
+  const selSound = document.querySelector('#alarmSound')?.value || state.alarmSound || 'chime';
+  const vol      = parseFloat(document.querySelector('#alarmVolume')?.value || state.alarmVolume || 0.6);
+  playChimePattern(selSound, vol);
+  speak('This is a test alarm.');
+});
 
 /* ---------- Stopwatch ---------- */
 let swInt=0;
