@@ -47,11 +47,8 @@ let state = load() || {
   // weather
   lastWeather:null,
   sensorEnabled:false, soundEnabled:false,
-
-  voiceEnabled: false,
-  voiceName: '',
-  voiceRate: 1,
-
+  // voice
+  voiceEnabled:false, voiceName:'', voiceRate:1
 };
 
 /* ---------- apply theme + initial text safely ---------- */
@@ -59,7 +56,7 @@ document.body.dataset.theme = state.theme;
 document.body.dataset.mode  = state.mode;
 setText('#modeTitle', TITLES[state.mode]);
 setText('#modeSubtitle', SUBS[state.mode]);
-if (els.themeIcon) els.themeIcon.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
+els.themeIcon?.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
 
 /* ---------- PWA ---------- */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
@@ -95,6 +92,7 @@ window.addEventListener('touchend',e=>{
   const next = dx<0 ? order[(i+1)%order.length] : order[(i-1+order.length)%order.length];
   setMode(next);
 },{passive:true});
+
 /* ---------- Speech (Web Speech API) ---------- */
 let speechVoices = [];
 function loadVoicesIntoSelect(){
@@ -104,14 +102,9 @@ function loadVoicesIntoSelect(){
   if (!sel) return;
   const current = state.voiceName || '';
   sel.innerHTML = `<option value="">Auto voice</option>` +
-    speechVoices
-      .map(v => `<option value="${v.name}" ${v.name===current?'selected':''}>${v.name} (${v.lang})</option>`)
-      .join('');
+    speechVoices.map(v => `<option value="${v.name}" ${v.name===current?'selected':''}>${v.name} (${v.lang})</option>`).join('');
 }
-// some browsers populate voices async:
-if ('speechSynthesis' in window) {
-  speechSynthesis.onvoiceschanged = loadVoicesIntoSelect;
-}
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = loadVoicesIntoSelect;
 
 function speak(text){
   if (!state.voiceEnabled) return false;
@@ -204,9 +197,7 @@ function ensureAudio(){
   return !!audioCtx;
 }
 async function resumeAudioIfSuspended(){
-  try{
-    if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-  }catch{}
+  try{ if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume(); }catch{}
 }
 function makeVoice(freq, t0, dur, type='sine', gain=0.6){
   const osc = audioCtx.createOscillator();
@@ -226,11 +217,9 @@ function playChimePattern(style='chime', vol=0.6){
 
   const t = audioCtx.currentTime + 0.04;
   if(style==='beep'){
-    // classic two-tone beep
     makeVoice(880, t+0.00, 0.18, 'square', 0.45);
     makeVoice(660, t+0.22, 0.18, 'square', 0.45);
   }else{
-    // soft triad chime arpeggio
     const notes = [784, 988, 1175]; // G5–B5–D6
     notes.forEach((f,i)=>{
       const st = t + i*0.16;
@@ -246,10 +235,6 @@ function startAlarmTone(){
   alarmInterval = setInterval(()=> playChimePattern(state.alarmSound, state.alarmVolume), 1600);
   if (navigator.vibrate) navigator.vibrate([180,80,180,80,220]);
 }
-  // Voice announce (time-aware)
-  const nowTxt = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-  speak(`Alarm ringing. It is ${nowTxt}.`);
-
 function stopAlarmTone(){
   if(alarmInterval){ clearInterval(alarmInterval); alarmInterval=null; }
   if(masterGain){ try{ masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.05); }catch{} }
@@ -275,6 +260,9 @@ function triggerAlarm(){
   els.stopAlarm?.classList.remove('hidden');
   if(els.alarmInfo) els.alarmInfo.textContent='🔔 Alarm ringing!';
   startAlarmTone();
+  // voice announce here (moved from top-level!)
+  const nowTxt = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  speak(`Alarm ringing. It is ${nowTxt}.`);
 }
 function cancelAlarm(){
   clearTimeout(alarmT);
@@ -308,13 +296,15 @@ function fmtMS(ms){
 }
 function tRender(){ els.tDisp && (els.tDisp.textContent=fmtMS(state.tLeft)); }
 function tStart(){ if(state.tRun) return; state.tRun=true; state.tLast=performance.now(); save();
-  tInt=setInterval(()=>{ const now=performance.now(); state.tLeft -= (now-state.tLast); state.tLast=now;
-   { if (state.tLeft<=0){
-  state.tLeft=0; tPause();
-  // Prefer voice; fallback to beep if speech disabled
-  if (!speak('Timer complete.')) beep();
-} }
-    tRender(); },200);
+  tInt=setInterval(()=>{
+    const now=performance.now();
+    state.tLeft -= (now-state.tLast); state.tLast=now;
+    if (state.tLeft<=0){
+      state.tLeft=0; tPause();
+      if (!speak('Timer complete.')) beep();
+    }
+    tRender();
+  },200);
   els.tSP && (els.tSP.textContent='Pause');
 }
 function tPause(){ if(!state.tRun) return; state.tRun=false; save(); clearInterval(tInt); els.tSP && (els.tSP.textContent='Start'); }
@@ -326,57 +316,6 @@ els.tSet?.addEventListener('click', ()=>{
 });
 els.tSP?.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
 els.tReset?.addEventListener('click', ()=> tReset());
-
-// when opening settings, populate fields
-els.settingsBtn?.addEventListener('click', async ()=>{
-  await resumeAudioIfSuspended?.();
-  // existing sound fields
-  const selSound = document.querySelector('#alarmSound');
-  const rngVol   = document.querySelector('#alarmVolume');
-  if (selSound) selSound.value = state.alarmSound || 'chime';
-  if (rngVol)   rngVol.value   = state.alarmVolume ?? 0.6;
-
-  // NEW: voice fields
-  const chkVoice = document.querySelector('#voiceEnabled');
-  const selVoice = document.querySelector('#voiceSelect');
-  const rngRate  = document.querySelector('#voiceRate');
-  if (chkVoice) chkVoice.checked = !!state.voiceEnabled;
-  if (rngRate)  rngRate.value = state.voiceRate ?? 1;
-
-  // populate voices list
-  loadVoicesIntoSelect();
-
-  openModal(document.querySelector('#settingsPanel'));
-});
-
-document.querySelector('#saveSettings')?.addEventListener('click', ()=>{
-  // existing sound fields
-  const selSound = document.querySelector('#alarmSound');
-  const rngVol   = document.querySelector('#alarmVolume');
-  if(selSound) state.alarmSound = selSound.value;
-  if(rngVol)   state.alarmVolume = parseFloat(rngVol.value || '0.6');
-
-  // NEW: voice fields
-  const chkVoice = document.querySelector('#voiceEnabled');
-  const selVoice = document.querySelector('#voiceSelect');
-  const rngRate  = document.querySelector('#voiceRate');
-  state.voiceEnabled = !!chkVoice?.checked;
-  state.voiceName    = selVoice?.value || '';
-  state.voiceRate    = parseFloat(rngRate?.value || '1');
-
-  save();
-  closeModal(document.querySelector('#settingsPanel'));
-});
-
-// test button now also speaks
-document.querySelector('#testAlarm')?.addEventListener('click', async ()=>{
-  if(!ensureAudio()) return;
-  await resumeAudioIfSuspended?.();
-  const selSound = document.querySelector('#alarmSound')?.value || state.alarmSound || 'chime';
-  const vol      = parseFloat(document.querySelector('#alarmVolume')?.value || state.alarmVolume || 0.6);
-  playChimePattern(selSound, vol);
-  speak('This is a test alarm.');
-});
 
 /* ---------- Stopwatch ---------- */
 let swInt=0;
@@ -464,57 +403,65 @@ if (state.sensorEnabled) {
   setTimeout(()=>showOverlay(), 300);
 }
 
-/* ---------- Settings & Help Panels (robust wiring) ---------- */
+/* ---------- Settings & Help Panels (single, robust wiring) ---------- */
 function $(s){ return document.querySelector(s); }
-
 const settingsPanel = $('#settingsPanel');
 const helpPanel     = $('#helpPanel');
 const helpBtn       = $('#helpBtn');
 const settingsBtn   = $('#settingsBtn');
 
-function openModal(el){
-  if(!el){ console.warn('Modal element not found'); return; }
-  el.classList.add('show');
-  el.setAttribute('aria-hidden','false');
-}
-function closeModal(el){
-  if(!el) return;
-  el.classList.remove('show');
-  el.setAttribute('aria-hidden','true');
-}
+function openModal(el){ if(!el){ console.warn('Modal element not found'); return; } el.classList.add('show'); el.setAttribute('aria-hidden','false'); }
+function closeModal(el){ if(!el) return; el.classList.remove('show'); el.setAttribute('aria-hidden','true'); }
 
-// Wire Settings (gear)
+// Open Settings and populate fields (sound + voice)
 settingsBtn?.addEventListener('click', async ()=>{
-  // populate fields from state
-  const sel = $('#alarmSound');
-  const rng = $('#alarmVolume');
-  if(sel) sel.value = state.alarmSound || 'chime';
-  if(rng) rng.value = state.alarmVolume ?? 0.6;
+  await resumeAudioIfSuspended?.();
 
-  // make sure audio can play test tone
-  if(!ensureAudio()) console.warn('AudioContext unavailable (user gesture needed?)');
+  const selSound = $('#alarmSound');
+  const rngVol   = $('#alarmVolume');
+  if (selSound) selSound.value = state.alarmSound || 'chime';
+  if (rngVol)   rngVol.value   = state.alarmVolume ?? 0.6;
+
+  const chkVoice = $('#voiceEnabled');
+  const selVoice = $('#voiceSelect');
+  const rngRate  = $('#voiceRate');
+  if (chkVoice) chkVoice.checked = !!state.voiceEnabled;
+  if (rngRate)  rngRate.value    = state.voiceRate ?? 1;
+
+  loadVoicesIntoSelect();
+  if (selVoice && state.voiceName) selVoice.value = state.voiceName;
 
   openModal(settingsPanel);
 });
 
 $('#closeSettings')?.addEventListener('click', ()=> closeModal(settingsPanel));
 $('#saveSettings')?.addEventListener('click', ()=>{
-  const sel = $('#alarmSound');
-  const rng = $('#alarmVolume');
-  if(sel) state.alarmSound = sel.value;
-  if(rng) state.alarmVolume = parseFloat(rng.value || '0.6');
+  const selSound = $('#alarmSound');
+  const rngVol   = $('#alarmVolume');
+  if(selSound) state.alarmSound = selSound.value;
+  if(rngVol)   state.alarmVolume = parseFloat(rngVol.value || '0.6');
+
+  const chkVoice = $('#voiceEnabled');
+  const selVoice = $('#voiceSelect');
+  const rngRate  = $('#voiceRate');
+  state.voiceEnabled = !!chkVoice?.checked;
+  state.voiceName    = selVoice?.value || '';
+  state.voiceRate    = parseFloat(rngRate?.value || '1');
+
   save();
   closeModal(settingsPanel);
 });
+
 $('#testAlarm')?.addEventListener('click', async ()=>{
   if(!ensureAudio()) return;
-  try{ if (audioCtx.state === 'suspended') await audioCtx.resume(); }catch{}
-  const sel = $('#alarmSound')?.value || state.alarmSound || 'chime';
-  const vol = parseFloat($('#alarmVolume')?.value || state.alarmVolume || 0.6);
-  playChimePattern(sel, vol);
+  await resumeAudioIfSuspended?.();
+  const selSound = $('#alarmSound')?.value || state.alarmSound || 'chime';
+  const vol      = parseFloat($('#alarmVolume')?.value || state.alarmVolume || 0.6);
+  playChimePattern(selSound, vol);
+  speak('This is a test alarm.');
 });
 
-// Wire Help (question mark button)
+// Help modal
 helpBtn?.addEventListener('click', ()=> openModal(helpPanel));
 $('#closeHelp')?.addEventListener('click', ()=> closeModal(helpPanel));
 
@@ -531,7 +478,7 @@ document.addEventListener('keydown', (e)=>{
   }
 });
 
-// Log missing elements (helps debug quickly)
+// Debug if something is missing
 if(!settingsBtn)  console.warn('#settingsBtn not found');
 if(!helpBtn)      console.warn('#helpBtn not found');
 if(!settingsPanel)console.warn('#settingsPanel not found');
