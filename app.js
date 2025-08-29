@@ -88,7 +88,7 @@ els.installBtn?.addEventListener('click', async ()=>{
   deferredPrompt.prompt();
   try{ await deferredPrompt.userChoice; }catch{}
   deferredPrompt=null;
-  els.installBtn.style.display='none';
+  els.installBtn && (els.installBtn.style.display='none');
 });
 window.addEventListener('appinstalled', ()=>{ els.installBtn && (els.installBtn.style.display='none'); });
 
@@ -390,6 +390,11 @@ function renderWeather(){
   els.wMinMax&& (els.wMinMax.textContent=`${w.min}° / ${w.max}°`);
   els.wDesc  && (els.wDesc.textContent=w.desc);
   els.wHead  && (els.wHead.textContent=`${w.desc} — ${w.temp}°C`);
+  // ensure scene is applied even when rendering from cache
+  if (w.code){
+    state.scene = sceneFromCode(w.code);
+    document.body.dataset.scene = state.scene;
+  }
 }
 function lazyWeather(){
   if(fetchedWeather && state.lastWeather) return; fetchedWeather=true;
@@ -410,34 +415,56 @@ els.citySearch?.addEventListener('click', async()=>{
 /* ---------- Ambient canvas (parallax particles) ---------- */
 (function ambient(){
   const c=els.ambient; if(!c) return;
+  // make sure it sits behind content
+  c.style.position='absolute';
+  c.style.inset='0';
+  c.style.width='100%';
+  c.style.height='100%';
+  c.style.zIndex='0';
+  c.style.pointerEvents='none';
+
   const ctx=c.getContext('2d',{alpha:true});
-  let W=0,H=0, px=0, py=0, t=0;
-  const dots = Array.from({length: 80}, (_,i)=>({
+  let W=0,H=0, px=0, py=0, t=0, DPR=Math.max(1, Math.floor(devicePixelRatio||1));
+  const dots = Array.from({length: 80}, ()=>({
     x: Math.random(), y: Math.random(), r: Math.random()*1.2+0.3, s: Math.random()*0.6+0.2
   }));
-  function resize(){ W=c.width=window.innerWidth*devicePixelRatio; H=c.height=window.innerHeight*devicePixelRatio; }
+  function resize(){
+    W = c.width = Math.floor(window.innerWidth*DPR);
+    H = c.height = Math.floor(window.innerHeight*DPR);
+  }
   resize(); window.addEventListener('resize', resize);
+
   function draw(){
     t+=0.005; ctx.clearRect(0,0,W,H);
     const ox = (px/45)*W*0.02, oy=(py/45)*H*0.03;
+    // scene tint
+    let tint = [110,231,255]; // default cyan
+    const scene = document.body.dataset.scene;
+    if(scene==='rain') tint=[100,170,255];
+    if(scene==='cloud')tint=[180,200,230];
+    if(scene==='storm')tint=[255,120,120];
+    if(scene==='snow') tint=[240,250,255];
+
     for(const d of dots){
-      const x = (d.x*W + ox + Math.sin(t*d.s)*6), y=(d.y*H + oy + Math.cos(t*d.s)*6);
-      ctx.beginPath(); ctx.arc(x,y,d.r*devicePixelRatio,0,Math.PI*2);
-      // subtle scene tint
-      let tint = [110,231,255]; // sun/default cyan
-      const scene = document.body.dataset.scene;
-      if(scene==='rain') tint=[100,170,255];
-      if(scene==='cloud')tint=[180,200,230];
-      if(scene==='storm')tint=[255,120,120];
-      if(scene==='snow') tint=[240,250,255];
+      const x = (d.x*W + ox + Math.sin(t*d.s)*6);
+      const y = (d.y*H + oy + Math.cos(t*d.s)*6);
+      ctx.beginPath(); ctx.arc(x,y,d.r*DPR,0,Math.PI*2);
       ctx.fillStyle=`rgba(${tint[0]},${tint[1]},${tint[2]},0.12)`;
       ctx.fill();
     }
     requestAnimationFrame(draw);
   }
   draw();
-  // update tilt for parallax
+
+  // update tilt for parallax (mobile)
   window.trackTilt = (beta=0,gamma=0)=>{ px=beta||0; py=gamma||0; };
+
+  // desktop fallback: mouse move parallax
+  window.addEventListener('mousemove', e=>{
+    const nx=(e.clientX/window.innerWidth)*2-1;
+    const ny=(e.clientY/window.innerHeight)*2-1;
+    px = nx*45; py = ny*45;
+  },{passive:true});
 })();
 
 /* ---------- Shake gesture (reset / unlock Fun Mode) ---------- */
@@ -447,18 +474,14 @@ els.citySearch?.addEventListener('click', async()=>{
     const a = e.accelerationIncludingGravity || e.acceleration; if(!a) return;
     const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
     const now = Date.now();
-    if (mag>20 && now-last>250){ // threshold + debounce
+    if (mag>20 && now-last>250){
       last=now; count++;
       clearTimeout(timer);
       timer=setTimeout(()=>{ count=0; }, 1200);
-      // action on 2 quick shakes
       if (count>=2){
         count=0;
-        // if upside-down (Timer mode), unlock Fun Mode
         if (state.mode===MODES.TIMER){ setMode(MODES.FUN); setStatus('Fun Mode unlocked'); }
-        // else reset Stopwatch if visible
         if (state.mode===MODES.STOPWATCH){ swReset(); setStatus('Stopwatch reset'); }
-        // small vibration feedback
         navigator.vibrate && navigator.vibrate(50);
       }
     }
@@ -478,6 +501,12 @@ startClock();
 if(state.alarmAt) scheduleAlarm(state.alarmAt);
 tRender(); if(state.tRun) tStart();
 swRender(state.swElapsed); renderLaps(); if(state.swRun) swStart();
+
+// Restore scene tint if cached weather exists (ensures weather-reactive theme on load)
+if (state.lastWeather?.code) {
+  state.scene = sceneFromCode(state.lastWeather.code);
+  document.body.dataset.scene = state.scene;
+}
 
 if (state.sensorEnabled) enableSensors();
 else {
