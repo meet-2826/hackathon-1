@@ -1,36 +1,51 @@
-/* Oriento — minimalist, mobile-first, no frameworks */
-const MODES = { ALARM:'alarm', TIMER:'timer', STOPWATCH:'stopwatch', WEATHER:'weather' };
-const TITLES = { alarm:'Alarm', timer:'Timer', stopwatch:'Stopwatch', weather:'Weather' };
+/* Oriento — minimalist, mobile-first, no frameworks (pro build) */
+
+/* ---------- modes ---------- */
+const MODES = { ALARM:'alarm', TIMER:'timer', STOPWATCH:'stopwatch', WEATHER:'weather', FUN:'fun' };
+const TITLES = { alarm:'Alarm', timer:'Timer', stopwatch:'Stopwatch', weather:'Weather', fun:'Fun Mode' };
 const SUBS = {
   alarm:'Portrait upright',
   timer:'Portrait upside-down',
   stopwatch:'Landscape right-side',
-  weather:'Landscape left-side'
+  weather:'Landscape left-side',
+  fun:'Easter egg unlocked'
 };
 
-/* ---------- small helpers ---------- */
-function q(sel){ return document.querySelector(sel); }
-function setText(sel, value){ const el = q(sel); if (el) el.textContent = value; }
-function save(){ try{ localStorage.setItem('oriento-min', JSON.stringify(state)); }catch{} }
-function load(){ try{ return JSON.parse(localStorage.getItem('oriento-min')||''); }catch{ return null; } }
-function setStatus(t){ const s=q('#statusChip'); if(s) s.textContent='Orientation: '+t; }
+/* ---------- helpers ---------- */
+const q = (sel)=> document.querySelector(sel);
+const setText = (sel, v)=> { const el=q(sel); if(el) el.textContent=v; };
+const setStatus = (t)=> { const s=q('#statusChip'); if(s) s.textContent='Orientation: '+t; };
+const save = ()=>{ try{ localStorage.setItem('oriento-min', JSON.stringify(state)); }catch{} };
+const load = ()=>{ try{ return JSON.parse(localStorage.getItem('oriento-min')||''); }catch{ return null; } };
 
 /* ---------- cache elements ---------- */
 const els = {
   overlay: q('#overlay'), enableMotion:q('#enableMotion'), enableSound:q('#enableSound'), closeOverlay:q('#closeOverlay'),
   status:q('#statusChip'), themeToggle:q('#themeToggle'), themeIcon:q('#themeIcon'),
   lockBtn:q('#lockBtn'), settingsBtn:q('#settingsBtn'),
-  // panels (sections)
-  p:{ alarm:q('#mode-alarm'), timer:q('#mode-timer'), stopwatch:q('#mode-stopwatch'), weather:q('#mode-weather') },
+  installBtn:q('#installBtn'),
+  // sections
+  p:{
+    alarm:q('#mode-alarm'), timer:q('#mode-timer'),
+    stopwatch:q('#mode-stopwatch'), weather:q('#mode-weather'),
+    fun:q('#mode-fun')
+  },
   // alarm
-  alarmNow:q('#alarmNow'), alarmTime:q('#alarmTime'), setAlarm:q('#setAlarm'), clearAlarm:q('#clearAlarm'), alarmInfo:q('#alarmInfo'), stopAlarm:q('#stopAlarm'),
+  alarmNow:q('#alarmNow'), alarmTime:q('#alarmTime'), setAlarm:q('#setAlarm'),
+  clearAlarm:q('#clearAlarm'), alarmInfo:q('#alarmInfo'), stopAlarm:q('#stopAlarm'),
   // timer
-  tDisp:q('#timerDisplay'), tMin:q('#timerMin'), tSec:q('#timerSec'), tSet:q('#timerSet'), tSP:q('#timerStartPause'), tReset:q('#timerReset'), tInfo:q('#timerInfo'),
+  tDisp:q('#timerDisplay'), tMin:q('#timerMin'), tSec:q('#timerSec'),
+  tSet:q('#timerSet'), tSP:q('#timerStartPause'), tReset:q('#timerReset'), tInfo:q('#timerInfo'),
   // sw
   swDisp:q('#swDisplay'), swStart:q('#swStartPause'), swReset:q('#swReset'), swLap:q('#swLap'), swLaps:q('#swLaps'),
   // weather
   cityInput:q('#cityInput'), citySearch:q('#citySearch'),
-  wHead:q('#weatherHeadline'), wCity:q('#wCity'), wTemp:q('#wTemp'), wMinMax:q('#wMinMax'), wDesc:q('#wDesc'), wInfo:q('#weatherInfo')
+  wHead:q('#weatherHeadline'), wCity:q('#wCity'), wTemp:q('#wTemp'), wMinMax:q('#wMinMax'), wDesc:q('#wDesc'), wInfo:q('#weatherInfo'),
+  // ambient
+  ambient:q('#ambient'),
+  // modals
+  settingsPanel:q('#settingsPanel'), helpPanel:q('#helpPanel'),
+  helpBtn:q('#helpBtn')
 };
 
 /* ---------- state ---------- */
@@ -45,23 +60,39 @@ let state = load() || {
   // sw
   swRun:false, swStart:0, swElapsed:0, swLaps:[],
   // weather
-  lastWeather:null,
+  lastWeather:null, scene:'default',
+  // features
   sensorEnabled:false, soundEnabled:false,
   // voice
   voiceEnabled:false, voiceName:'', voiceRate:1
 };
 
-/* ---------- apply theme + initial text safely ---------- */
+/* ---------- apply theme + initial text ---------- */
 document.body.dataset.theme = state.theme;
 document.body.dataset.mode  = state.mode;
+document.body.dataset.scene = state.scene || 'default';
 setText('#modeTitle', TITLES[state.mode]);
 setText('#modeSubtitle', SUBS[state.mode]);
 els.themeIcon?.setAttribute('href', state.theme==='dark' ? '#i-moon' : '#i-sun');
 
-/* ---------- PWA ---------- */
+/* ---------- PWA: SW + install button ---------- */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  deferredPrompt = e;
+  if (els.installBtn) els.installBtn.style.display='inline-flex';
+});
+els.installBtn?.addEventListener('click', async ()=>{
+  if(!deferredPrompt) return;
+  deferredPrompt.prompt();
+  try{ await deferredPrompt.userChoice; }catch{}
+  deferredPrompt=null;
+  els.installBtn.style.display='none';
+});
+window.addEventListener('appinstalled', ()=>{ els.installBtn && (els.installBtn.style.display='none'); });
 
-/* ---------- Theme ---------- */
+/* ---------- Theme toggle ---------- */
 els.themeToggle?.addEventListener('click', ()=>{
   state.theme = state.theme==='dark' ? 'light' : 'dark';
   document.body.dataset.theme = state.theme;
@@ -87,13 +118,13 @@ window.addEventListener('touchend',e=>{
   if(!state.locked) return;
   const t=e.changedTouches[0], dx=t.clientX-sx, dy=t.clientY-sy, dt=Date.now()-st;
   if(dt>600) return; if(Math.abs(dx)<60 || Math.abs(dy)>60) return;
-  const order=[MODES.ALARM, MODES.TIMER, MODES.STOPWATCH, MODES.WEATHER];
+  const order=[MODES.ALARM, MODES.TIMER, MODES.STOPWATCH, MODES.WEATHER, MODES.FUN];
   const i=order.indexOf(state.mode);
   const next = dx<0 ? order[(i+1)%order.length] : order[(i-1+order.length)%order.length];
   setMode(next);
 },{passive:true});
 
-/* ---------- Speech (Web Speech API) ---------- */
+/* ---------- Speech (Web Speech) ---------- */
 let speechVoices = [];
 function loadVoicesIntoSelect(){
   if (!('speechSynthesis' in window)) return;
@@ -122,7 +153,7 @@ function speak(text){
 }
 
 /* ---------- Orientation ---------- */
-let usingSensors=false, handler=null, rafGate=false;
+let handler=null, rafGate=false;
 function modeFrom({beta=null,gamma=null,angle=null,winOri=null}){
   if(beta!==null && gamma!==null){
     const ab=Math.abs(beta), ag=Math.abs(gamma);
@@ -144,6 +175,8 @@ async function enableSensors(){
     }
     if (!handler){
       handler = (ev)=>{
+        // ambient parallax
+        trackTilt(ev.beta, ev.gamma);
         if (rafGate) return; rafGate=true;
         requestAnimationFrame(()=>{
           rafGate=false; if(state.locked) return;
@@ -154,30 +187,27 @@ async function enableSensors(){
       };
     }
     window.addEventListener('deviceorientation', handler, {passive:true});
-    usingSensors=true; state.sensorEnabled=true; save();
-  }catch{ usingSensors=false; state.sensorEnabled=false; save(); }
+    state.sensorEnabled=true; save();
+  }catch{ state.sensorEnabled=false; save(); }
 }
-window.addEventListener('orientationchange', ()=>{
-  if(state.locked) return;
+window.addEventListener('orientationchange', ()=>{ if(state.locked) return;
   const angle=screen.orientation?.angle, winOri=typeof window.orientation==='number'?window.orientation:null;
   setMode(modeFrom({angle,winOri}));
 },{passive:true});
-window.addEventListener('resize', ()=>{
-  if(state.locked) return;
+window.addEventListener('resize', ()=>{ if(state.locked) return;
   const angle=screen.orientation?.angle, winOri=typeof window.orientation==='number'?window.orientation:null;
   setMode(modeFrom({angle,winOri}));
 },{passive:true});
 
 /* ---------- Mode router ---------- */
 function showOnly(modeKey){
-  ['alarm','timer','stopwatch','weather'].forEach(k=>{
-    const p = q('#mode-' + k);
-    if (!p) return;
+  ['alarm','timer','stopwatch','weather','fun'].forEach(k=>{
+    const p = q('#mode-' + k); if(!p) return;
     p.classList.toggle('active', k === modeKey);
   });
   document.body.dataset.mode = modeKey;
-  setText('#modeTitle', TITLES[modeKey]);
-  setText('#modeSubtitle', SUBS[modeKey]);
+  setText('#modeTitle', TITLES[modeKey] || '');
+  setText('#modeSubtitle', SUBS[modeKey] || '');
 }
 function setMode(m){
   if (!Object.values(MODES).includes(m)) return;
@@ -188,7 +218,7 @@ function setMode(m){
 }
 
 /* ---------- Audio ---------- */
-let audioCtx=null, alarmInterval=null, masterGain=null;
+let audioCtx=null, alarmInterval=null, voiceInterval=null, masterGain=null;
 function ensureAudio(){
   if(!audioCtx){
     try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
@@ -202,8 +232,7 @@ async function resumeAudioIfSuspended(){
 function makeVoice(freq, t0, dur, type='sine', gain=0.6){
   const osc = audioCtx.createOscillator();
   const g   = audioCtx.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, t0);
+  osc.type = type; osc.frequency.setValueAtTime(freq, t0);
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(gain, t0+0.03);
   g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
@@ -214,7 +243,6 @@ function playChimePattern(style='chime', vol=0.6){
   if(!ensureAudio()) return;
   if(!masterGain){ masterGain = audioCtx.createGain(); masterGain.connect(audioCtx.destination); }
   masterGain.gain.setValueAtTime(vol, audioCtx.currentTime);
-
   const t = audioCtx.currentTime + 0.04;
   if(style==='beep'){
     makeVoice(880, t+0.00, 0.18, 'square', 0.45);
@@ -234,12 +262,21 @@ function startAlarmTone(){
   playChimePattern(state.alarmSound, state.alarmVolume);
   alarmInterval = setInterval(()=> playChimePattern(state.alarmSound, state.alarmVolume), 1600);
   if (navigator.vibrate) navigator.vibrate([180,80,180,80,220]);
+
+  // looped voice announce every ~10s (separate from chime loop)
+  if (voiceInterval) clearInterval(voiceInterval);
+  const speakOnce = ()=>{
+    const nowTxt = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    speak(`Alarm ringing. It is ${nowTxt}.`);
+  };
+  speakOnce();
+  voiceInterval = setInterval(speakOnce, 10000);
 }
 function stopAlarmTone(){
   if(alarmInterval){ clearInterval(alarmInterval); alarmInterval=null; }
+  if(voiceInterval){ clearInterval(voiceInterval); voiceInterval=null; }
   if(masterGain){ try{ masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.05); }catch{} }
 }
-// simple beep used by Timer completion
 function beep(){ playChimePattern('beep', state.alarmVolume ?? 0.6); }
 
 /* ---------- Overlay ---------- */
@@ -247,82 +284,62 @@ function showOverlay(){ els.overlay?.classList.add('show'); els.overlay?.setAttr
 function hideOverlay(){ els.overlay?.classList.remove('show'); els.overlay?.setAttribute('aria-hidden','true'); }
 els.closeOverlay?.addEventListener('click', hideOverlay);
 els.enableMotion?.addEventListener('click', async()=>{ await enableSensors(); hideOverlay(); });
-els.enableSound?.addEventListener('click', async()=>{ if(ensureAudio()) await resumeAudioIfSuspended(); hideOverlay(); });
+els.enableSound ?.addEventListener('click', async()=>{ if(ensureAudio()) await resumeAudioIfSuspended(); hideOverlay(); });
 
 /* ---------- Alarm ---------- */
 let clockT=0, alarmT=0;
-function fmtClock(d){ return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
-function startClock(){ if(clockT) return; const tick=()=> { els.alarmNow && (els.alarmNow.textContent = fmtClock(new Date())); }; tick(); clockT=setInterval(tick,500); }
+const fmtClock = (d)=> d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+function startClock(){ if(clockT) return; const tick=()=>{ els.alarmNow && (els.alarmNow.textContent = fmtClock(new Date())); }; tick(); clockT=setInterval(tick,500); }
 function nextAlarm(hhmm){ if(!hhmm) return null; const [h,m]=hhmm.split(':').map(Number); const d=new Date(); d.setSeconds(0,0); d.setHours(h,m,0,0); if(d<=Date.now()) d.setDate(d.getDate()+1); return d; }
 function scheduleAlarm(ts){ clearTimeout(alarmT); const d=ts-Date.now(); if(d<=0) return triggerAlarm(); alarmT=setTimeout(triggerAlarm,d); }
 function triggerAlarm(){
   state.alarmRinging=true; save();
   els.stopAlarm?.classList.remove('hidden');
-  if(els.alarmInfo) els.alarmInfo.textContent='🔔 Alarm ringing!';
+  els.alarmInfo && (els.alarmInfo.textContent='🔔 Alarm ringing!');
   startAlarmTone();
-  // voice announce here (moved from top-level!)
-  const nowTxt = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-  speak(`Alarm ringing. It is ${nowTxt}.`);
 }
 function cancelAlarm(){
   clearTimeout(alarmT);
   state.alarmAt=null; state.alarmRinging=false; save();
   els.stopAlarm?.classList.add('hidden');
-  if(els.alarmInfo) els.alarmInfo.textContent='No alarm set.';
+  els.alarmInfo && (els.alarmInfo.textContent='No alarm set.');
   stopAlarmTone();
 }
-els.setAlarm?.addEventListener('click', async ()=>{
+els.setAlarm ?.addEventListener('click', async ()=>{
   await resumeAudioIfSuspended();
   const d=nextAlarm(els.alarmTime?.value);
-  if(!d){ if(els.alarmInfo) els.alarmInfo.textContent='Pick a time first.'; return; }
+  if(!d){ els.alarmInfo && (els.alarmInfo.textContent='Pick a time first.'); return; }
   state.alarmAt=d.getTime(); state.alarmRinging=false; save(); scheduleAlarm(state.alarmAt);
   els.stopAlarm?.classList.add('hidden');
   const mins=Math.round((d-Date.now())/60000);
-  if(els.alarmInfo) els.alarmInfo.textContent=`Alarm set for ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} (~${mins} min).`;
+  els.alarmInfo && (els.alarmInfo.textContent=`Alarm set for ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} (~${mins} min).`);
 });
 els.clearAlarm?.addEventListener('click', cancelAlarm);
-els.stopAlarm?.addEventListener('click', ()=>{
-  state.alarmRinging=false; save();
-  stopAlarmTone();
-  els.stopAlarm?.classList.add('hidden');
-});
+els.stopAlarm ?.addEventListener('click', ()=>{ state.alarmRinging=false; save(); stopAlarmTone(); els.stopAlarm?.classList.add('hidden'); });
 
 /* ---------- Timer ---------- */
 let tInt=0;
-function fmtMS(ms){
-  const neg=ms<0; if(neg) ms=-ms;
-  const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), s=Math.floor((ms%60000)/1000);
-  return (neg?'-':'') + (h?String(h).padStart(2,'0')+':':'') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
-}
+function fmtMS(ms){ const neg=ms<0; if(neg) ms=-ms; const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), s=Math.floor((ms%60000)/1000);
+  return (neg?'-':'') + (h?String(h).padStart(2,'0')+':':'') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'); }
 function tRender(){ els.tDisp && (els.tDisp.textContent=fmtMS(state.tLeft)); }
 function tStart(){ if(state.tRun) return; state.tRun=true; state.tLast=performance.now(); save();
-  tInt=setInterval(()=>{
-    const now=performance.now();
-    state.tLeft -= (now-state.tLast); state.tLast=now;
-    if (state.tLeft<=0){
-      state.tLeft=0; tPause();
-      if (!speak('Timer complete.')) beep();
-    }
-    tRender();
-  },200);
+  tInt=setInterval(()=>{ const now=performance.now(); state.tLeft -= (now-state.tLast); state.tLast=now;
+    if (state.tLeft<=0){ state.tLeft=0; tPause(); if (!speak('Timer complete.')) beep(); }
+    tRender(); },200);
   els.tSP && (els.tSP.textContent='Pause');
 }
 function tPause(){ if(!state.tRun) return; state.tRun=false; save(); clearInterval(tInt); els.tSP && (els.tSP.textContent='Start'); }
 function tReset(to=null){ tPause(); state.tLeft = (to??state.tTotal); tRender(); save(); }
-els.tSet?.addEventListener('click', ()=>{
-  const m=Math.max(0, parseInt(els.tMin?.value||'0',10)||0);
+els.tSet  ?.addEventListener('click', ()=>{ const m=Math.max(0, parseInt(els.tMin?.value||'0',10)||0);
   const s=Math.min(59, Math.max(0, parseInt(els.tSec?.value||'0',10)||0));
-  const total=(m*60+s)*1000; state.tTotal=total||0; tReset(total);
-});
-els.tSP?.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
+  const total=(m*60+s)*1000; state.tTotal=total||0; tReset(total); });
+els.tSP   ?.addEventListener('click', ()=> state.tRun ? tPause() : tStart());
 els.tReset?.addEventListener('click', ()=> tReset());
 
 /* ---------- Stopwatch ---------- */
 let swInt=0;
-function swRender(ms){
-  const m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000), h=Math.floor((ms%1000)/10);
-  els.swDisp && (els.swDisp.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(h).padStart(2,'0')}`);
-}
+function swRender(ms){ const m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000), h=Math.floor((ms%1000)/10);
+  els.swDisp && (els.swDisp.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(h).padStart(2,'0')}`); }
 function swStart(){ if(state.swRun) return; state.swRun=true; state.swStart=performance.now()-state.swElapsed; save();
   swInt=setInterval(()=>{ state.swElapsed=performance.now()-state.swStart; swRender(state.swElapsed); },50);
   els.swStart && (els.swStart.textContent='Pause');
@@ -335,8 +352,15 @@ els.swStart?.addEventListener('click', ()=> state.swRun?swPause():swStart());
 els.swReset?.addEventListener('click', swReset);
 els.swLap  ?.addEventListener('click', swLap);
 
-/* ---------- Weather (Open-Meteo, no key) ---------- */
+/* ---------- Weather (Open-Meteo) + dynamic scene ---------- */
 const WMAP = {0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Drizzle',53:'Drizzle',55:'Drizzle',56:'Freezing drizzle',57:'Freezing drizzle',61:'Rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Freezing rain',71:'Snowfall',73:'Snowfall',75:'Snow',77:'Snow grains',80:'Rain showers',81:'Rain showers',82:'Heavy showers',85:'Snow showers',86:'Heavy snow',95:'Thunderstorm',96:'Thunder w/ hail',99:'Thunder w/ hail'};
+const sceneFromCode = (code)=>{
+  if ([61,63,65,80,81,82].includes(code)) return 'rain';
+  if ([71,73,75,77,85,86].includes(code)) return 'snow';
+  if ([95,96,99].includes(code)) return 'storm';
+  if ([2,3,45,48,51,53,55,56,57,66,67].includes(code)) return 'cloud';
+  return 'sun';
+};
 let fetchedWeather=false;
 async function reverseCity(lat,lon){
   const r=await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=en`,{cache:'no-store'});
@@ -346,9 +370,12 @@ async function fetchWeatherByCoords(lat,lon){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto`;
   const r=await fetch(u,{cache:'no-store'}); const j=await r.json();
   const cc=j.current, dd=j.daily; const i=0;
-  const desc=WMAP[dd.weather_code?.[i]] || WMAP[cc.weather_code] || '—';
+  const code = dd.weather_code?.[i] ?? cc.weather_code;
+  const desc = WMAP[code] || '—';
   const city = await reverseCity(lat,lon).catch(()=>null);
-  state.lastWeather = { city: city || `${lat.toFixed(2)},${lon.toFixed(2)}`, temp: Math.round(cc.temperature_2m), min: Math.round(dd.temperature_2m_min[i]), max: Math.round(dd.temperature_2m_max[i]), desc };
+  state.lastWeather = { city: city || `${lat.toFixed(2)},${lon.toFixed(2)}`, temp: Math.round(cc.temperature_2m), min: Math.round(dd.temperature_2m_min[i]), max: Math.round(dd.temperature_2m_max[i]), desc, code };
+  state.scene = sceneFromCode(code);
+  document.body.dataset.scene = state.scene;
   save(); renderWeather();
 }
 async function searchCity(qStr){
@@ -380,6 +407,64 @@ els.citySearch?.addEventListener('click', async()=>{
   try{ await searchCity(qv); els.wInfo && (els.wInfo.textContent='Data: Open-Meteo'); }catch{ els.wInfo && (els.wInfo.textContent='Not found. Try another city.'); }
 });
 
+/* ---------- Ambient canvas (parallax particles) ---------- */
+(function ambient(){
+  const c=els.ambient; if(!c) return;
+  const ctx=c.getContext('2d',{alpha:true});
+  let W=0,H=0, px=0, py=0, t=0;
+  const dots = Array.from({length: 80}, (_,i)=>({
+    x: Math.random(), y: Math.random(), r: Math.random()*1.2+0.3, s: Math.random()*0.6+0.2
+  }));
+  function resize(){ W=c.width=window.innerWidth*devicePixelRatio; H=c.height=window.innerHeight*devicePixelRatio; }
+  resize(); window.addEventListener('resize', resize);
+  function draw(){
+    t+=0.005; ctx.clearRect(0,0,W,H);
+    const ox = (px/45)*W*0.02, oy=(py/45)*H*0.03;
+    for(const d of dots){
+      const x = (d.x*W + ox + Math.sin(t*d.s)*6), y=(d.y*H + oy + Math.cos(t*d.s)*6);
+      ctx.beginPath(); ctx.arc(x,y,d.r*devicePixelRatio,0,Math.PI*2);
+      // subtle scene tint
+      let tint = [110,231,255]; // sun/default cyan
+      const scene = document.body.dataset.scene;
+      if(scene==='rain') tint=[100,170,255];
+      if(scene==='cloud')tint=[180,200,230];
+      if(scene==='storm')tint=[255,120,120];
+      if(scene==='snow') tint=[240,250,255];
+      ctx.fillStyle=`rgba(${tint[0]},${tint[1]},${tint[2]},0.12)`;
+      ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+  // update tilt for parallax
+  window.trackTilt = (beta=0,gamma=0)=>{ px=beta||0; py=gamma||0; };
+})();
+
+/* ---------- Shake gesture (reset / unlock Fun Mode) ---------- */
+(function shakeDetector(){
+  let last=0, count=0, timer=0;
+  window.addEventListener('devicemotion', (e)=>{
+    const a = e.accelerationIncludingGravity || e.acceleration; if(!a) return;
+    const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
+    const now = Date.now();
+    if (mag>20 && now-last>250){ // threshold + debounce
+      last=now; count++;
+      clearTimeout(timer);
+      timer=setTimeout(()=>{ count=0; }, 1200);
+      // action on 2 quick shakes
+      if (count>=2){
+        count=0;
+        // if upside-down (Timer mode), unlock Fun Mode
+        if (state.mode===MODES.TIMER){ setMode(MODES.FUN); setStatus('Fun Mode unlocked'); }
+        // else reset Stopwatch if visible
+        if (state.mode===MODES.STOPWATCH){ swReset(); setStatus('Stopwatch reset'); }
+        // small vibration feedback
+        navigator.vibrate && navigator.vibrate(50);
+      }
+    }
+  }, {passive:true});
+})();
+
 /* ---------- Battery: pause when hidden ---------- */
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ if(state.tRun) tPause(); if(state.swRun) swPause(); } });
 
@@ -389,69 +474,47 @@ function initMode(){
   if (state.mode===MODES.WEATHER && !state.lastWeather) lazyWeather();
 }
 initMode();
-
 startClock();
 if(state.alarmAt) scheduleAlarm(state.alarmAt);
 tRender(); if(state.tRun) tStart();
 swRender(state.swElapsed); renderLaps(); if(state.swRun) swStart();
 
-if (state.sensorEnabled) {
-  enableSensors();
-} else {
+if (state.sensorEnabled) enableSensors();
+else {
   const angle=screen.orientation?.angle, winOri=typeof window.orientation==='number'?window.orientation:null;
   setMode(modeFrom({angle,winOri}));
   setTimeout(()=>showOverlay(), 300);
 }
 
-/* ---------- Settings & Help Panels (single, robust wiring) ---------- */
-function $(s){ return document.querySelector(s); }
-const settingsPanel = $('#settingsPanel');
-const helpPanel     = $('#helpPanel');
-const helpBtn       = $('#helpBtn');
-const settingsBtn   = $('#settingsBtn');
-
+/* ---------- Settings & Help (robust wiring) ---------- */
+const settingsPanel = els.settingsPanel, helpPanel=els.helpPanel, helpBtn=els.helpBtn, settingsBtn=els.settingsBtn;
+const $ = (s)=> document.querySelector(s);
 function openModal(el){ if(!el){ console.warn('Modal element not found'); return; } el.classList.add('show'); el.setAttribute('aria-hidden','false'); }
 function closeModal(el){ if(!el) return; el.classList.remove('show'); el.setAttribute('aria-hidden','true'); }
 
-// Open Settings and populate fields (sound + voice)
 settingsBtn?.addEventListener('click', async ()=>{
   await resumeAudioIfSuspended?.();
-
-  const selSound = $('#alarmSound');
-  const rngVol   = $('#alarmVolume');
-  if (selSound) selSound.value = state.alarmSound || 'chime';
-  if (rngVol)   rngVol.value   = state.alarmVolume ?? 0.6;
-
-  const chkVoice = $('#voiceEnabled');
-  const selVoice = $('#voiceSelect');
-  const rngRate  = $('#voiceRate');
-  if (chkVoice) chkVoice.checked = !!state.voiceEnabled;
-  if (rngRate)  rngRate.value    = state.voiceRate ?? 1;
-
+  $('#alarmSound') && ($('#alarmSound').value = state.alarmSound || 'chime');
+  $('#alarmVolume') && ($('#alarmVolume').value = state.alarmVolume ?? 0.6);
+  $('#voiceEnabled') && ($('#voiceEnabled').checked = !!state.voiceEnabled);
+  $('#voiceRate') && ($('#voiceRate').value = state.voiceRate ?? 1);
   loadVoicesIntoSelect();
-  if (selVoice && state.voiceName) selVoice.value = state.voiceName;
-
+  const selVoice = $('#voiceSelect'); if (selVoice && state.voiceName) selVoice.value = state.voiceName;
   openModal(settingsPanel);
 });
-
 $('#closeSettings')?.addEventListener('click', ()=> closeModal(settingsPanel));
 $('#saveSettings')?.addEventListener('click', ()=>{
-  const selSound = $('#alarmSound');
-  const rngVol   = $('#alarmVolume');
+  const selSound=$('#alarmSound'), rngVol=$('#alarmVolume');
   if(selSound) state.alarmSound = selSound.value;
   if(rngVol)   state.alarmVolume = parseFloat(rngVol.value || '0.6');
 
-  const chkVoice = $('#voiceEnabled');
-  const selVoice = $('#voiceSelect');
-  const rngRate  = $('#voiceRate');
+  const chkVoice=$('#voiceEnabled'), selVoice=$('#voiceSelect'), rngRate=$('#voiceRate');
   state.voiceEnabled = !!chkVoice?.checked;
   state.voiceName    = selVoice?.value || '';
   state.voiceRate    = parseFloat(rngRate?.value || '1');
 
-  save();
-  closeModal(settingsPanel);
+  save(); closeModal(settingsPanel);
 });
-
 $('#testAlarm')?.addEventListener('click', async ()=>{
   if(!ensureAudio()) return;
   await resumeAudioIfSuspended?.();
@@ -461,24 +524,12 @@ $('#testAlarm')?.addEventListener('click', async ()=>{
   speak('This is a test alarm.');
 });
 
-// Help modal
 helpBtn?.addEventListener('click', ()=> openModal(helpPanel));
 $('#closeHelp')?.addEventListener('click', ()=> closeModal(helpPanel));
+[settingsPanel, helpPanel].forEach(m=>{ m?.addEventListener('click', e=>{ if(e.target===m) closeModal(m); }); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ settingsPanel?.classList.contains('show')&&closeModal(settingsPanel); helpPanel?.classList.contains('show')&&closeModal(helpPanel); }});
 
-// Click outside to close
-[settingsPanel, helpPanel].forEach(m=>{
-  m?.addEventListener('click', e=>{ if(e.target === m) closeModal(m); });
-});
-
-// Esc to close
-document.addEventListener('keydown', (e)=>{
-  if(e.key === 'Escape'){
-    if(settingsPanel?.classList.contains('show')) closeModal(settingsPanel);
-    if(helpPanel?.classList.contains('show')) closeModal(helpPanel);
-  }
-});
-
-// Debug if something is missing
+/* Debug logs if missing */
 if(!settingsBtn)  console.warn('#settingsBtn not found');
 if(!helpBtn)      console.warn('#helpBtn not found');
 if(!settingsPanel)console.warn('#settingsPanel not found');

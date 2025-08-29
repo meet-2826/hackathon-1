@@ -1,14 +1,14 @@
 /* -------------------------------------------------------
    ORIENTO — Futuristic Minimal UI (mobile-first)
    • Glass + soft-neon accents
-   • Big touch targets, safe-area padding
-   • Motion-safe animations, crisp focus states
-   • Includes fallbacks for color-mix/oklab
+   • Dynamic scenes (sun / cloud / rain / snow / storm)
+   • Ambient canvas layer (parallax, tilt-reactive)
+   • Motion-safe, battery-friendly
 ------------------------------------------------------- */
 
-/* =============== CSS VARIABLES =============== */
+/* =============== TOKENS =============== */
 :root{
-  /* base palette (dark) */
+  /* base (dark) */
   --bg: #0b0c10;
   --bg-2: #0e1117;
   --surface: #11131a;
@@ -17,64 +17,81 @@
   --muted: #a7b1bb;
 
   /* accents */
-  --accent: #6ee7ff;       /* cyan */
-  --accent-2: #8b5cf6;     /* violet */
-  --positive: #22cc88;
+  --accent: #6ee7ff;   /* cyan */
+  --accent-2:#8b5cf6;  /* violet */
   --danger: #ff5c7a;
 
   /* sizing */
-  --radius: 14px;
-  --pad: 14px;
-  --icon: 22px;
+  --radius:14px; --pad:14px; --icon:22px;
+  --maxw: 1100px; /* app */
 
-  /* typography */
+  /* type */
   --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* effects (fallbacks first, then color-mix overrides) */
+  /* effects (fallbacks) */
   --ring: 0 0 0 3px rgba(110,231,255,.35);
+  --soft-brd: rgba(255,255,255,.08);
+  --soft-bg: rgba(255,255,255,.02);
   --shadow: 0 8px 24px rgba(0,0,0,.35), 0 1px 0 rgba(255,255,255,.02) inset;
+
+  /* scene accent (overridden via [data-scene]) */
+  --scene: 110,231,255; /* cyan default */
 }
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
+@supports (color: color-mix(in oklab, #000 50%, #fff)){
   :root{
     --ring: 0 0 0 3px color-mix(in oklab, var(--accent) 35%, transparent);
-    --shadow: 0 8px 24px rgba(0,0,0,.35), 0 1px 0 rgba(255,255,255,.02) inset;
   }
 }
 
-/* Light theme */
+/* light theme */
 [data-theme="light"]{
-  --bg: #f6f8fb;
-  --bg-2: #eef2f7;
-  --surface: #ffffff;
-  --layer: #ffffff;
-  --text: #0e1116;
-  --muted: #535b66;
-  --accent: #1ea7ff;
-  --accent-2: #7c4dff;
+  --bg:#f6f8fb; --bg-2:#eef2f7; --surface:#ffffff; --layer:#ffffff;
+  --text:#0e1116; --muted:#535b66;
+  --accent:#1ea7ff; --accent-2:#7c4dff;
+  --soft-brd: rgba(0,0,0,.08);
+  --soft-bg: rgba(255,255,255,.7);
 }
 
-/* =============== RESET =============== */
+/* =============== GLOBAL RESET =============== */
 *{box-sizing:border-box}
 html,body{height:100%}
 html{font-size:16px}
 body{
-  margin:0; font-family:var(--font); color:var(--text);
+  margin:0; font-family:var(--font); color:var(--text); background:#000;
   background:
-    radial-gradient(1200px 800px at 10% -10%, rgba(110,231,255,.18), transparent 45%),
+    radial-gradient(1200px 800px at 10% -10%, rgba(var(--scene),.18), transparent 45%),
     radial-gradient(900px 700px at 110% 10%, rgba(139,92,246,.16), transparent 40%),
     linear-gradient(180deg, var(--bg), var(--bg-2));
   -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
 }
 
-/* =============== APP LAYOUT (mobile-first) =============== */
-.app{
-  min-height:100dvh; display:flex; flex-direction:column; gap:12px;
-  padding: calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
-  max-width:1100px; margin-inline:auto;
+/* Scene tints */
+[data-scene="sun"]  { --scene: 110,231,255; } /* cyan */
+[data-scene="cloud"]{ --scene: 180,200,230; } /* soft blue-gray */
+[data-scene="rain"] { --scene: 100,170,255; } /* rainy blue */
+[data-scene="snow"] { --scene: 240,250,255; } /* icy white */
+[data-scene="storm"]{ --scene: 255,120,120; } /* warm red */
+
+/* =============== AMBIENT CANVAS =============== */
+#ambient{
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  width:100%; height:100%;
+  mix-blend-mode:screen; opacity:.9;
 }
 
-/* Utilities */
+/* =============== APP LAYOUT =============== */
+.app{
+  position:relative; z-index:1;
+  min-height:100dvh; display:flex; flex-direction:column; gap:12px;
+  padding: calc(10px + env(safe-area-inset-top))
+           calc(12px + env(safe-area-inset-right))
+           calc(16px + env(safe-area-inset-bottom))
+           calc(12px + env(safe-area-inset-left));
+  max-width:var(--maxw); margin-inline:auto;
+}
+
+/* utils */
 .row{display:flex; gap:10px; align-items:center}
 .wrap{flex-wrap:wrap}
 .col{display:flex; flex-direction:column; gap:10px}
@@ -87,78 +104,63 @@ body{
 
 /* =============== HEADER =============== */
 .header{
-  display:flex; align-items:center; justify-content:space-between;
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
   padding:10px; border-radius:var(--radius);
-  background: rgba(255,255,255,.02); /* fallback */
-  border:1px solid rgba(255,255,255,.08);
-  box-shadow: var(--shadow);
-  position:sticky; top:0; z-index:20;
-  backdrop-filter:saturate(120%) blur(8px);
-}
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .header{
-    background: color-mix(in oklab, var(--surface) 88%, transparent);
-    border:1px solid color-mix(in oklab, var(--text) 8%, transparent);
-  }
+  background: var(--soft-bg); border:1px solid var(--soft-brd); box-shadow:var(--shadow);
+  position:sticky; top:0; z-index:5; backdrop-filter:saturate(120%) blur(8px);
 }
 .brand{display:flex; gap:10px; align-items:center}
 .logo{
-  width:36px;height:36px;border-radius:10px;
-  display:grid; place-items:center; font-weight:700; letter-spacing:.5px;
+  width:36px;height:36px;border-radius:10px; display:grid; place-items:center; font-weight:700;
   color:#0b0b0c;
-  background:
-    radial-gradient(120% 120% at 30% 20%, #9af2ff 0 30%, #4fe2ff 60%, #00c8ff 100%);
+  background: radial-gradient(120% 120% at 30% 20%, #9af2ff 0 30%, #4fe2ff 60%, #00c8ff 100%);
   box-shadow: 0 8px 22px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.45);
 }
 .wordmark{font-weight:700; letter-spacing:.3px}
 .toolbar .btn{padding:9px 12px; min-height:40px}
 
-/* =============== STAGE (centered card) =============== */
+/* Optional install button if present */
+#installBtn{ display:none } /* shown via JS when available */
+
+/* =============== STAGE (center card) =============== */
 .stage{
-  flex:1;
-  display:grid; place-items:center; /* center active mode */
-  padding:16px;
+  flex:1; display:grid; place-items:center; padding:16px;
   border-radius:calc(var(--radius) + 2px);
   background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01));
-  border:1px solid rgba(255,255,255,.08);
-  box-shadow: var(--shadow);
-  position:relative; overflow:hidden;
-  padding-bottom:max(16px, env(safe-area-inset-bottom));
-}
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .stage{
-    background: linear-gradient(180deg, color-mix(in oklab, var(--surface) 94%, transparent), color-mix(in oklab, var(--layer) 92%, transparent));
-    border:1px solid color-mix(in oklab, var(--text) 8%, transparent);
-  }
+  border:1px solid var(--soft-brd); box-shadow:var(--shadow);
+  position:relative; overflow:hidden; padding-bottom:max(16px, env(safe-area-inset-bottom));
 }
 .stage::before{
-  content:""; position:absolute; inset:auto auto 15% -20%;
+  content:""; position:absolute; right:-20%; bottom:15%;
   width:60vmin; height:60vmin; border-radius:50%;
-  background: radial-gradient(closest-side, rgba(110,231,255,.3), transparent 70%);
-  filter:blur(40px); opacity:.22; pointer-events:none; transform:translateZ(0);
+  background: radial-gradient(closest-side, rgba(var(--scene),.28), transparent 70%);
+  filter:blur(38px); opacity:.22; pointer-events:none; transform:translateZ(0);
 }
 
-/* Only one mode visible */
+/* Only one panel visible */
 .mode{display:none; opacity:0; transform:translateY(6px); pointer-events:none}
-.mode.active{display:block; opacity:1; transform:none; pointer-events:auto;
-  transition:opacity .18s ease, transform .18s ease;
-}
-/* constrain inner width so it looks clean on narrow phones */
+.mode.active{display:block; opacity:1; transform:none; pointer-events:auto; transition:opacity .18s ease, transform .18s ease;}
+/* center column & keep narrow for landscape phones */
 .mode > .col{ width:min(560px, 96vw); margin-inline:auto }
 
 /* Heads */
 .mode-head .icon{opacity:.9}
 #modeTitle{font-weight:700; letter-spacing:.25px}
 
-/* BIG digits */
+/* BIG digits / headline */
 .big{
   font-family:var(--mono);
   font-size:clamp(2.4rem, 9vw, 5.8rem);
   letter-spacing:.02em; line-height:1.05; text-align:center;
   margin:8px 0 10px;
-  text-shadow:
-    0 0 14px rgba(110,231,255,.18),
-    0 1px 0 rgba(255,255,255,.04);
+  text-shadow: 0 0 14px rgba(var(--scene),.18), 0 1px 0 rgba(255,255,255,.04);
+}
+
+/* Fun Mode flavor (if you add a #mode-fun section) */
+#mode-fun .big{
+  background: linear-gradient(90deg, rgba(var(--scene),1), #8b5cf6);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  text-shadow:none;
 }
 
 /* Weather grid */
@@ -167,22 +169,13 @@ body{
   gap:10px; margin-top:8px; width:min(560px,100%); margin-inline:auto;
 }
 .stat{
-  padding:10px 12px; border:1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.02);
-  border-radius:12px; text-align:center;
-}
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .stat{
-    border:1px solid color-mix(in oklab, var(--text) 8%, transparent);
-    background: color-mix(in oklab, var(--layer) 92%, transparent);
-  }
+  padding:10px 12px; border:1px solid var(--soft-brd);
+  background: var(--soft-bg); border-radius:12px; text-align:center;
 }
 
 /* =============== BUTTONS =============== */
 .btn{
-  --btn-bg: rgba(255,255,255,.02);
-  --btn-brd: rgba(255,255,255,.1);
-  --btn-txt: var(--text);
+  --btn-bg: var(--soft-bg); --btn-brd: var(--soft-brd); --btn-txt: var(--text);
   display:inline-flex; align-items:center; justify-content:center; gap:8px;
   padding:10px 14px; min-height:42px; border-radius:12px;
   border:1px solid var(--btn-brd); background:var(--btn-bg); color:var(--btn-txt);
@@ -190,38 +183,19 @@ body{
   cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
   transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
 }
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .btn{
-    --btn-bg: color-mix(in oklab, var(--layer) 92%, transparent);
-    --btn-brd: color-mix(in oklab, var(--text) 10%, transparent);
-  }
-}
 .btn:active{ transform: translateY(1px) scale(.98) }
-.btn:hover{ border-color: rgba(110,231,255,.4) }
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .btn:hover{ border-color: color-mix(in oklab, var(--accent) 40%, var(--btn-brd)); }
-}
+.btn:hover{ border-color: rgba(var(--scene),.35) }
+
 .btn.primary{
   background:
-    radial-gradient(120% 220% at 10% 0%, rgba(110,231,255,.75), transparent 40%),
+    radial-gradient(120% 220% at 10% 0%, rgba(var(--scene),.75), transparent 40%),
     rgba(255,255,255,.04);
-  border-color: rgba(110,231,255,.55);
+  border-color: rgba(var(--scene),.55);
   color:#0b0b0c; font-weight:700;
-  box-shadow: 0 6px 18px rgba(110,231,255,.28);
+  box-shadow: 0 6px 18px rgba(var(--scene),.28);
   animation: btnBreath 3.2s ease-in-out infinite;
 }
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .btn.primary{
-    background:
-      radial-gradient(120% 220% at 10% 0%, color-mix(in oklab, var(--accent) 75%, transparent), transparent 40%),
-      color-mix(in oklab, var(--layer) 96%, transparent);
-    border-color: color-mix(in oklab, var(--accent) 55%, transparent);
-    box-shadow: 0 6px 18px color-mix(in oklab, var(--accent) 28%, transparent);
-  }
-}
-.btn.ghost{
-  background: transparent; border-color: rgba(255,255,255,.1);
-}
+.btn.ghost{ background: transparent; border-color: var(--soft-brd) }
 .btn.danger{
   background: rgba(255,92,122,.22);
   border-color: rgba(255,92,122,.5);
@@ -237,38 +211,34 @@ body{
   border:1px solid rgba(255,255,255,.12);
   background: rgba(255,255,255,.04);
   color:var(--text); box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
-  outline: none; transition: box-shadow .12s ease, border-color .12s ease;
+  outline:none; transition: box-shadow .12s ease, border-color .12s ease;
 }
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .input{
-    border:1px solid color-mix(in oklab, var(--text) 12%, transparent);
-    background: color-mix(in oklab, var(--layer) 94%, transparent);
-  }
-}
-.input:focus{ box-shadow: var(--ring); border-color: rgba(110,231,255,.55) }
+.input:focus{ box-shadow: var(--ring); border-color: rgba(var(--scene),.55) }
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0 }
 input[type="time"]{ font-family:var(--mono); letter-spacing:.04em }
 
-/* range (Settings volume) */
-input[type="range"]{
-  -webkit-appearance:none; appearance:none; background:transparent; width:220px;
-}
+/* form fields in modals */
+.field{ display:flex; flex-direction:column; gap:6px; margin:8px 0 }
+.field label{ font-size:.92rem; color:var(--muted) }
+
+/* range */
+input[type="range"]{ -webkit-appearance:none; appearance:none; background:transparent; width:220px }
 input[type="range"]::-webkit-slider-runnable-track{
   height:8px; border-radius:999px;
-  background: linear-gradient(90deg, rgba(110,231,255,.6), rgba(139,92,246,.6));
+  background: linear-gradient(90deg, rgba(var(--scene),.6), rgba(139,92,246,.6));
 }
 input[type="range"]::-webkit-slider-thumb{
   -webkit-appearance:none; appearance:none; width:20px;height:20px;margin-top:-6px;border-radius:50%;
-  background:#fff; border:2px solid rgba(110,231,255,.6);
+  background:#fff; border:2px solid rgba(var(--scene),.6);
   box-shadow:0 4px 10px rgba(0,0,0,.3);
 }
 input[type="range"]::-moz-range-track{
   height:8px; border-radius:999px;
-  background: linear-gradient(90deg, rgba(110,231,255,.6), rgba(139,92,246,.6));
+  background: linear-gradient(90deg, rgba(var(--scene),.6), rgba(139,92,246,.6));
 }
 input[type="range"]::-moz-range-thumb{
-  width:18px;height:18px;border-radius:50%; border:2px solid rgba(110,231,255,.6); background:#fff;
+  width:18px;height:18px;border-radius:50%; border:2px solid rgba(var(--scene),.6); background:#fff;
 }
 
 /* =============== CHIPS / FOOTER =============== */
@@ -278,14 +248,8 @@ input[type="range"]::-moz-range-thumb{
 }
 .chip{
   padding:8px 10px; border-radius:999px; font-size:.9rem;
-  border:1px solid rgba(255,255,255,.1);
-  background: rgba(255,255,255,.04);
-}
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .chip{
-    border:1px solid color-mix(in oklab, var(--text) 10%, transparent);
-    background: color-mix(in oklab, var(--layer) 92%, transparent);
-  }
+  border:1px solid var(--soft-brd);
+  background: var(--soft-bg);
 }
 
 /* =============== PERMISSION OVERLAY =============== */
@@ -295,55 +259,55 @@ input[type="range"]::-moz-range-thumb{
 }
 .overlay.show{ display:flex }
 .overlay .card{
-  background: var(--surface); border:1px solid rgba(255,255,255,.1);
+  background: var(--surface); border:1px solid var(--soft-brd);
   border-radius:var(--radius); padding:16px; width:min(92vw, 440px);
   box-shadow: var(--shadow);
 }
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .overlay .card{
-    border:1px solid color-mix(in oklab, var(--text) 10%, transparent);
-  }
-}
 
-/* =============== MODALS (Settings / Help) =============== */
+/* =============== MODALS =============== */
 .modal{
   position:fixed; inset:0; display:none; align-items:center; justify-content:center;
   background: rgba(0,0,0,.45); z-index:100;
 }
 .modal.show{ display:flex }
 .sheet{
-  background: var(--surface); border:1px solid rgba(255,255,255,.1);
+  background: var(--surface); border:1px solid var(--soft-brd);
   border-radius:var(--radius); padding:14px; width:min(92vw, 480px);
   box-shadow: var(--shadow); backdrop-filter:saturate(120%) blur(6px);
-}
-@supports (color: color-mix(in oklab, #000 50%, #fff)) {
-  .sheet{ border:1px solid color-mix(in oklab, var(--text) 10%, transparent); }
 }
 .sheet-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px }
 
 /* =============== ACCESSIBILITY =============== */
 :focus-visible{ outline:none; box-shadow: var(--ring) }
-::selection{ background: rgba(110,231,255,.4); color:#001014 }
+::selection{ background: rgba(var(--scene),.4); color:#001014 }
 
-/* =============== SCROLLBAR (subtle) =============== */
-*{ scrollbar-width:thin; scrollbar-color: rgba(110,231,255,.4) transparent }
+/* =============== SCROLLBAR =============== */
+*{ scrollbar-width:thin; scrollbar-color: rgba(var(--scene),.4) transparent }
 *::-webkit-scrollbar{ height:8px; width:8px }
-*::-webkit-scrollbar-thumb{
-  background: rgba(110,231,255,.4);
-  border-radius:999px;
-}
+*::-webkit-scrollbar-thumb{ background: rgba(var(--scene),.4); border-radius:999px }
 
-/* =============== ANIMATIONS (motion-safe) =============== */
+/* =============== ANIMATIONS =============== */
 @keyframes btnBreath{
-  0%,100%{ box-shadow: 0 6px 18px rgba(110,231,255,.20) }
-  50%{    box-shadow: 0 10px 28px rgba(110,231,255,.36) }
+  0%,100%{ box-shadow: 0 6px 18px rgba(var(--scene),.20) }
+  50%{    box-shadow: 0 10px 28px rgba(var(--scene),.36) }
 }
 @media (prefers-reduced-motion: reduce){
   *{ animation:none !important; transition:none !important }
 }
 
-/* =============== RESPONSIVE TWEAKS =============== */
+/* =============== RESPONSIVE =============== */
 @media (min-width:720px){
   .toolbar .btn{ min-height:42px }
   .grid{ grid-template-columns:repeat(4,1fr) }
+}
+
+/* =============== HARDENING / SAFETY =============== */
+/* Ensure only one mode shows even if external CSS failed initially (also in HTML inline) */
+.mode{ pointer-events:none }
+.mode.active{ pointer-events:auto }
+
+/* Keep content centered in any orientation */
+@media (orientation:landscape){
+  .stage{ padding:12px 10px }
+  .mode > .col{ width:min(560px, 88vw) }
 }
