@@ -1,126 +1,158 @@
-/* sw.js — Oriento PWA Service Worker
-   Strategy:
-   - HTML: network-first (fallback to cache)
-   - Static assets (CSS/JS/icons): cache-first (stale-while-revalidate)
-   - Third-party APIs: network pass-through
-*/
+// sw.js — Oriento PWA Service Worker
+// Strategies:
+// - HTML navigations: network-first (fallback to cached shell)
+// - CSS/JS: stale-while-revalidate (fast, then refresh in background)
+// - Icons/images: cache-first
+// - Weather APIs (Open-Meteo + Geocoding): stale-while-revalidate with last-known offline
 
-const CACHE_VERSION = 'oriento-min-v1'; // <— bump this when you ship changes
-const STATIC_CACHE = `static-${CACHE_VERSION}`;
+const VERSION = 'oriento-v10';               // <- bump this when you deploy
+const STATIC_CACHE  = `static-${VERSION}`;
+const RUNTIME_ASSET = `runtime-asset-${VERSION}`;
+const RUNTIME_WEATHER = `runtime-weather-${VERSION}`;
 
-// Files to precache for instant offline shell
-const CORE_ASSETS = [
-  '/',                 // Netlify serves index.html at /
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/manifest.webmanifest',
-  '/icon-192.png',     // add these icons if you have them
-  '/icon-512.png'
+const CORE = [
+  './',                    // scope-aware root
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.webmanifest',
+  // Optional: add your real icons if present
+  // './icons/icon-192.png',
+  // './icons/icon-512.png',
 ];
 
-self.addEventListener('install', event => {
+// ---- Install: pre-cache app shell and take control immediately
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE)
-      .then(cache => cache.addAll(CORE_ASSETS))
-      .then(() => self.skipWaiting())
-      .catch(() => {
-        // Ignore install failures (e.g., offline on first load)
-      })
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(CORE))
   );
+  self.skipWaiting();
 });
 
-self.addEventListener('activate', event => {
+// ---- Activate: clean old caches and claim clients
+self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // Remove older versioned caches
     const keys = await caches.keys();
     await Promise.all(
       keys
-        .filter(k => k.startsWith('static-') && k !== STATIC_CACHE)
+        .filter(k =>
+          k.startsWith('static-') ||
+          k.startsWith('runtime-asset-') ||
+          k.startsWith('runtime-weather-')
+        )
+        .filter(k => ![STATIC_CACHE, RUNTIME_ASSET, RUNTIME_WEATHER].includes(k))
         .map(k => caches.delete(k))
     );
     await self.clients.claim();
   })());
 });
 
-// Helper: is this a same-origin request?
-function isSameOrigin(url) {
+// Helpers
+const isNav = (req) =>
+  req.mode === 'navigate' ||
+  (req.destination === '' && req.headers.get('accept')?.includes('text/html'));
+
+const sameOrigin = (url) => {
+  try { return new URL(url, self.location.href).origin === self.location.origin; }
+  catch { return false; }
+};
+
+const isStyleOrScript = (req) =>
+  req.destination === 'style' || req.destination === 'script';
+
+const isImageOrIcon = (req) =>
+  req.destination === 'image' || req.destination === 'icon';
+
+const isWeatherAPI = (url) => {
   try {
-    const u = new URL(url, self.location.href);
-    return u.origin === self.location.origin;
+    const u = new URL(url);
+    return u.hostname.endsWith('open-meteo.com');
+  } catch { return false; }
+};
+
+// Strategies
+async function networkFirst(req) {
+  const cache = await caches.open(STATIC_CACHE);
+  try {
+    const fresh = await fetch(req, { cache: 'no-store' });
+    // Cache index shell for offline navigations
+    if (isNav(req)) {
+      const cloned = fresh.clone();
+      // put using the request URL (so same-path navs match)
+      cache.put(req, cloned);
+      // Also ensure index.html is kept fresh as a generic fallback
+      cache.put('./index.html', cloned.clone());
+    }
+    return fresh;
   } catch {
-    return false;
+    // Fallback to cached shell / cached request
+    return (await cache.match(req)) ||
+           (await cache.match('./index.html')) ||
+           new Response('<h1>Offline</h1><p>Content unavailable.</p>', {
+              headers: { 'Content-Type': 'text/html' }
+           });
   }
 }
 
-// Helper: treat navigation (HTML) requests specially
-function isNavigationRequest(req) {
-  return req.mode === 'navigate' || (req.destination === '' && req.headers.get('accept')?.includes('text/html'));
+async function staleWhileRevalidate(req, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(req, { ignoreSearch: true });
+  const fetchPromise = fetch(req).then((res) => {
+    if (res && res.ok) cache.put(req, res.clone());
+    return res;
+  }).catch(() => null);
+  return cached || fetchPromise || fetch(req);
 }
 
-self.addEventListener('fetch', event => {
+async function cacheFirst(req, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(req, { ignoreSearch: true });
+  if (cached) return cached;
+  try {
+    const fresh = await fetch(req);
+    if (fresh && fresh.ok) cache.put(req, fresh.clone());
+    return fresh;
+  } catch {
+    return new Response('', { status: 504, statusText: 'Gateway Timeout' });
+  }
+}
+
+// ---- Fetch: route by type
+self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // Only handle GET
+  // Only GET is cached
   if (request.method !== 'GET') return;
 
-  // HTML: network-first (with cache fallback)
-  if (isNavigationRequest(request)) {
-    event.respondWith((async () => {
-      try {
-        const fresh = await fetch(request, { cache: 'no-store' });
-        // Update cache copy
-        const cache = await caches.open(STATIC_CACHE);
-        cache.put('/index.html', fresh.clone());
-        return fresh;
-      } catch {
-        // Offline or network error → try cache
-        const cache = await caches.open(STATIC_CACHE);
-        const cached = await cache.match('/index.html') || await cache.match(request);
-        return cached || new Response('<h1>Offline</h1><p>Content unavailable.</p>', { headers: { 'Content-Type': 'text/html' }});
-      }
-    })());
+  // Navigations (HTML): network-first
+  if (isNav(request)) {
+    event.respondWith(networkFirst(request));
     return;
   }
 
-  // Same-origin static assets: cache-first (stale-while-revalidate)
-  if (isSameOrigin(request.url)) {
-    event.respondWith((async () => {
-      const CACHE_VERSION = 'oriento-min-v2'; // increment this
-      const cache = await caches.open(STATIC_CACHE);
-      const cached = await cache.match(request, { ignoreSearch: true });
-      const fetchAndUpdate = fetch(request).then(resp => {
-        // Only cache basic/opaque-ok assets
-        if (resp && resp.status === 200 && (resp.type === 'basic' || resp.type === 'opaqueredirect')) {
-          cache.put(request, resp.clone()).catch(()=>{});
-        }
-        return resp;
-      }).catch(() => null);
-
-      // Return cached immediately if present
-      if (cached) {
-        // Trigger background refresh but do not await it
-        fetchAndUpdate;
-        return cached;
-      }
-      // No cache → go to network
-      const fresh = await fetchAndUpdate;
-      if (fresh) return fresh;
-
-      // Last resort: any cache entry that matches path sans query
-      const url = new URL(request.url);
-      const fallback = await cache.match(url.pathname);
-      return fallback || new Response('', { status: 504, statusText: 'Gateway Timeout' });
-    })());
+  // Weather APIs: SWR with last-known offline
+  if (isWeatherAPI(request.url)) {
+    event.respondWith(staleWhileRevalidate(request, RUNTIME_WEATHER));
     return;
   }
 
-  // Third-party (e.g., Open-Meteo APIs): network pass-through
-  // You could add runtime caching here, but many APIs use CORS/no-store.
-  event.respondWith(fetch(request).catch(() => new Response('', { status: 502 })));
+  // Same-origin CSS/JS: SWR (fast yet refreshes in background)
+  if (sameOrigin(request.url) && isStyleOrScript(request)) {
+    event.respondWith(staleWhileRevalidate(request, RUNTIME_ASSET));
+    return;
+  }
+
+  // Same-origin images/icons: cache-first
+  if (sameOrigin(request.url) && isImageOrIcon(request)) {
+    event.respondWith(cacheFirst(request, RUNTIME_ASSET));
+    return;
+  }
+
+  // Everything else: try cache-first, then network (safe default)
+  event.respondWith(cacheFirst(request, RUNTIME_ASSET));
 });
 
-// Support manual skip waiting (optional)
-self.addEventListener('message', event => {
+// Optional: page can tell SW to take over immediately
+self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });
